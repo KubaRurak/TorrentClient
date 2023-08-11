@@ -1,6 +1,8 @@
 package com.torrentclient;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -9,10 +11,14 @@ import java.net.ProtocolException;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.URL;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +27,9 @@ import java.util.concurrent.Executors;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+import com.torrentclient.exceptions.WrongMessageTypeException;
+import com.torrentclient.exceptions.WrongPayloadLengthException;
 
 import jakarta.annotation.PreDestroy;
 import unet.bencode.variables.BencodeObject;
@@ -31,7 +40,12 @@ public class TorrentClientApplication implements CommandLineRunner {
 //	static String response = "d8:intervali900e5:peersld2:ip13:185.203.56.244:porti55266eed2:ip14:209.141.56.2364:porti6985eed2:ip13:45.158.186.114:porti54413eed2:ip15:134.249.136.1124:porti29905eed2:ip12:133.201.88.04:porti6882eed2:ip13:82.64.248.2444:porti24007eed2:ip13:82.196.124.874:porti16881eed2:ip12:185.203.56.64:porti59279eed2:ip12:61.205.220.44:porti59153eed2:ip13:130.61.89.1554:porti6881eed2:ip15:185.236.203.1244:porti43421eed2:ip15:149.102.137.2304:porti21250eed2:ip15:169.150.201.1634:porti48000eed2:ip14:31.192.237.1204:porti41722eed2:ip13:45.41.206.1214:porti53391eed2:ip15:142.113.144.1824:porti51765eed2:ip14:176.114.248.344:porti51453eed2:ip14:176.226.164.724:porti5555eed2:ip14:188.156.237.204:porti49164eed2:ip15:185.194.143.2014:porti26111eed2:ip13:62.153.208.984:porti3652eed2:ip13:185.149.90.214:porti51055eed2:ip15:189.245.179.2534:porti51765eed2:ip13:188.126.89.804:porti27049eed2:ip13:185.253.96.584:porti60246eed2:ip15:146.158.111.1894:porti51413eed2:ip13:93.221.180.904:porti6881eed2:ip14:199.168.73.1264:porti1330eed2:ip12:73.183.68.194:porti51413eed2:ip13:45.13.105.1354:porti51413eed2:ip12:212.7.200.654:porti12665eed2:ip13:82.65.147.1504:porti51414eed2:ip14:45.134.140.1404:porti6881eed2:ip13:51.159.104.654:porti7629eed2:ip14:68.134.157.2134:porti51413eed2:ip13:41.225.80.1504:porti1821eed2:ip14:120.229.36.2134:porti56339eed2:ip13:92.43.185.1114:porti61598eed2:ip12:31.22.89.1114:porti6897eed2:ip12:51.68.81.2274:porti6881eed2:ip12:185.148.1.834:porti52528eed2:ip12:189.6.26.1234:porti51413eed2:ip12:151.95.0.2464:porti51413eed2:ip13:87.227.189.894:porti55000eed2:ip15:185.213.154.1794:porti40455eed2:ip12:108.26.1.1554:porti6942eed2:ip12:62.12.77.1524:porti51413eed2:ip13:95.24.217.1984:porti35348eed2:ip12:85.29.89.1274:porti6881eed2:ip13:81.200.30.1344:porti13858eeee";
     private List<Socket> activeSockets = new ArrayList<>();
     private Queue<Integer> pieceQueue;
+    private boolean[] completedPieces;
     private ExecutorService connectionThreadPool;
+    private final int maxBlockSize = 16384;
+    private int downloaded;
+    private int piecesLeft;
+    private ByteBuffer[] pieceBuffers;
 
 
 	public static void main(String[] args) {
@@ -55,42 +69,104 @@ public class TorrentClientApplication implements CommandLineRunner {
                 connectionThreadPool.submit(() -> {
                     Client client = new Client(peer, handshake);
                     if (client.setClient()) {
-                        startDownloading(client);
-                    }
+						attemptDownloadPiece(client, torrent);
+					}
                 });
             }
             
-        } catch (SocketException e) {
-            e.printStackTrace();
         } catch (IOException e) {
             e.printStackTrace();
         }
 	}
 	
-    private void startDownloading(Client client) {
+    private void attemptDownloadPiece(Client client, Torrent torrent) {
         while (!pieceQueue.isEmpty()) {
             Integer pieceIndex = pieceQueue.poll();
-            if (pieceIndex != null) {
+            Bitfield bitfield = client.getBitfieldObject();
+            if (!bitfield.hasPiece(pieceIndex)) {
+                int pieceSize = getPieceSize(pieceIndex,torrent);
+                ByteBuffer pieceBuffer = ByteBuffer.allocate(pieceSize);
+                int blockSize = maxBlockSize;
+                int numOfBlocksInPiece = getNumberOfBlocksInPiece(pieceSize, blockSize);
                 try {
-                    // Download the piece from the client
-                    byte[] data = client.requestPiece(pieceIndex, 0, 0); // Implement proper begin and length values
-                    if (data != null) {
-                        // Handle the downloaded piece (e.g., write to a file or merge into the full buffer)
-                        handleDownloadedPiece(pieceIndex, data);
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+                	for (int blockIndex = 0; blockIndex < numOfBlocksInPiece; blockIndex++) {
+                        int begin = blockIndex * blockSize;
+                        int blockLength = Math.min(blockSize, pieceSize - begin);
+	                    client.sendRequestMessage(pieceIndex, begin, blockSize);
+	                    byte[] data = client.receiveMessage();
+	                    Message message = Message.createMessageObject(data);
+	                    if (message.getType()==MessageType.PIECE) {
+	                    	message.parsePieceMessage(blockIndex, pieceBuffer, message);
+	                    }
+                	}
+                byte[] pieceData = pieceBuffer.array();
+                handleDownloadedPiece(pieceIndex, pieceData, torrent);
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
             }
         }
     }
-
+    
+	private void handleDownloadedPiece(Integer pieceIndex, byte[] pieceData, Torrent torrent) {
+		if (checkIntegrity(pieceIndex, pieceData, torrent)) {
+			completedPieces[pieceIndex]=true;
+			System.out.println("Piece download succeded for index: " + pieceIndex);
+			downloaded++;
+			piecesLeft--;
+		} else {
+			pieceQueue.add(pieceIndex);
+			System.out.println("Piece download failed for index: " + pieceIndex);
+		}
+		if (piecesLeft==0) downloadComplete(torrent);
+	}
+	
 	private void initializePieceQueue(Torrent torrent) {
+		int numberOfPieces = torrent.getPieces().length;
+		downloaded = 0;
+		piecesLeft = numberOfPieces;
 		pieceQueue = new ArrayDeque<>();
-		for (int i=0; i<torrent.getPieces().length;i++) {
+		completedPieces = new boolean[numberOfPieces];
+		for (int i=0; i<numberOfPieces;i++) {
 			pieceQueue.add(i);
 		}
 	}
+    
+    private boolean checkIntegrity(int pieceIndex, byte[] pieceData, Torrent torrent) {
+        byte[] calculatedHash = calculateSHA1Hash(pieceData);
+        byte[] expectedHash = torrent.getPieceHashes()[pieceIndex];
+        return Arrays.equals(calculatedHash, expectedHash);
+    }
+    
+    private byte[] calculateSHA1Hash(byte[] data) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            return digest.digest(data);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+    
+
+
+
+	private int getPieceSize(int pieceIndex, Torrent torrent) {
+        long numPieces = torrent.getPieces().length;
+        if (pieceIndex == numPieces - 1) {
+        	int remainingData = (int) (torrent.getLength()%torrent.getPieceLength());
+        	return (remainingData > 0) ? remainingData : (int) torrent.getPieceLength();
+        } else {
+        	return (int) torrent.getPieceLength();
+        }
+    }
+    
+    private int getNumberOfBlocksInPiece(int pieceSize, int blockSize) {
+        return (int) Math.ceil(pieceSize/blockSize);
+    }
+
+
 	
 	private List<Peer> makePeerListFromResponse(String responseWithPeerList) {
 	    BencodeObject bencodeResponse = new BencodeObject(responseWithPeerList.getBytes());
@@ -156,6 +232,41 @@ public class TorrentClientApplication implements CommandLineRunner {
     @PreDestroy
     public void onApplicationExit() {
         disconnectAllSockets();
+    }
+    
+    private void initializePieceBuffers(Torrent torrent) {
+        int numberOfPieces = torrent.getPieces().length;
+        pieceBuffers = new ByteBuffer[numberOfPieces];
+        for (int i = 0; i < numberOfPieces; i++) {
+            pieceBuffers[i] = ByteBuffer.allocate((int) torrent.getPieceLength());
+        }
+    }
+    
+    private byte[] mergePieceBuffers() {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        for (ByteBuffer buffer : pieceBuffers) {
+            buffer.flip(); // Prepare for reading
+            while (buffer.hasRemaining()) {
+                outputStream.write(buffer.get());
+            }
+        }
+        return outputStream.toByteArray();
+    }
+    
+    
+    private void saveDownloadedDataToFile(byte[] downloadedData, String filePath) {
+        try (FileOutputStream fileOutputStream = new FileOutputStream(filePath)) {
+            fileOutputStream.write(downloadedData);
+            System.out.println("Downloaded data saved to: " + filePath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void downloadComplete(Torrent torrent) {
+        byte[] downloadedData = mergePieceBuffers();
+        String filePath = torrent.getName(); // Change this to your desired file path
+        saveDownloadedDataToFile(downloadedData, filePath);
     }
 
 }

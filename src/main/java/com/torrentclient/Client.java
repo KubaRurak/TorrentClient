@@ -13,6 +13,9 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.BitSet;
 
+import lombok.Data;
+
+@Data
 public class Client {
 
 	private Peer peer;
@@ -34,54 +37,77 @@ public class Client {
 	}
 
 
-	public boolean setClient() throws SocketException {
-		try {
-			connectToPeer();
-			socket.setSoTimeout(3000);
-			performHandshake();
-			byte[] response = receiveHandshake();
-			if (response != null) {
-				Response parsedResponse = new Response(response);
-				System.out.println("Response: " + new String(response));
-				if (parsedResponse.isHandshake()) {
-					Handshake receivedHandshake = Handshake.fromBytes(response);
-					this.peerId = receivedHandshake.getPeerId();
-					this.infoHash = receivedHandshake.getInfoHash();
-					this.handshakeCompleted = true;
-				}
-				System.out.println("HANDSHAKE COMPLETE: " + this.handshakeCompleted);
-				while (handshakeCompleted) {
-					System.out.println("Trying to recieve message");
-					byte[] messageResponse = receiveMessage();
-					if (messageResponse != null) {
-						System.out.println("Received message from peer: " + peer.getIpAddress() + ":" + peer.getPort());
-						parsedResponse = new Response(messageResponse);
-						Message receivedMessage = parsedResponse.getMessage();
-						System.out.println("Message type is: " + receivedMessage.getType().toString());
-						handleMessage(receivedMessage);
-						if (this.bitfield!=null) {
-							System.out.println("Success, can request pieces from peer");
-							clientSetSuccessfully = true;
-							socket.setSoTimeout(0);
-							break;
-						}
-					} else {
-						System.out.println("No response from peer: " + peer.getIpAddress() + ":" + peer.getPort());
-						disconnect();
-						break; // Break the loop if there's no more data to read
-					}
-				}
-			}
-		} catch (IOException e) {
-			System.out.println("Client timed out");
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
-		return clientSetSuccessfully;
-
+	public boolean setClient() {
+	    try {
+	        connectToPeer();
+	        socket.setSoTimeout(3000);
+	        
+	        if (performHandshake()) {
+	            if (receiveBitfield()) {
+	                clientSetSuccessfully = true;
+	                socket.setSoTimeout(0);
+	            }
+	        }
+	        
+	    } catch (IOException e) {
+	        System.out.println("Client timed out");
+	    } catch (Exception e) {
+	        e.printStackTrace();
+	    } 
+	    
+	    return clientSetSuccessfully;
 	}
+
+	private boolean performHandshake() {
+	    try {
+	        sendHandshake();
+	        byte[] response = receiveHandshake();
+	        
+	        if (response != null) {
+	            Response parsedResponse = new Response(response);
+	            if (parsedResponse.isHandshake()) {
+	                Handshake receivedHandshake = Handshake.fromBytes(response);
+	                this.peerId = receivedHandshake.getPeerId();
+	                this.infoHash = receivedHandshake.getInfoHash();
+	                this.handshakeCompleted = true;
+	            }
+	            System.out.println("HANDSHAKE COMPLETE: " + this.handshakeCompleted);
+	            return true;
+	        }
+	    } catch (IOException e) {
+	        System.out.println("Error performing handshake: " + e.getMessage());
+	    }
+	    return false;
+	}
+
+	private boolean receiveBitfield() {
+	    try {
+	        while (handshakeCompleted) {
+	            System.out.println("Trying to receive message");
+	            byte[] messageResponse = receiveMessage();
+	            
+	            if (messageResponse != null) {
+	                System.out.println("Received message from peer: " + peer.getIpAddress() + ":" + peer.getPort());
+	                Response parsedResponse = new Response(messageResponse);
+	                Message receivedMessage = parsedResponse.getMessage();
+	                System.out.println("Message type is: " + receivedMessage.getType().toString());
+	                handleMessage(receivedMessage);
+	                
+	                if (this.bitfield != null) {
+	                    System.out.println("Success, can request pieces from peer");
+	                    return true;
+	                }
+	            } else {
+	                System.out.println("No response from peer: " + peer.getIpAddress() + ":" + peer.getPort());
+	                return false;
+	            }
+	        }
+	    } catch (Exception e) {
+	        System.out.println("Error receiving bitfield: " + e.getMessage());
+	    }
+	    return false;
+	}
+	
 
 
 
@@ -101,7 +127,7 @@ public class Client {
 		}
 	}
 
-	private void performHandshake() throws IOException {
+	private void sendHandshake() throws IOException {
 		OutputStream outputStream = socket.getOutputStream();
 		byte[] handshakeMessage = handshake.createHandshake();
 		outputStream.write(handshakeMessage);
@@ -129,7 +155,7 @@ public class Client {
 
 		return response;
 	}
-	private byte[] receiveMessage() throws IOException {
+	public byte[] receiveMessage() throws IOException {
 		InputStream inputStream = socket.getInputStream();
 		ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 		// Read the first four bytes to get the length
@@ -160,7 +186,7 @@ public class Client {
 		return outputStream.toByteArray();
 	}
 	
-	private void sendRequestMessage(int index, int begin, int length) throws IOException {
+	public void sendRequestMessage(int index, int begin, int length) throws IOException {
 		Message requestMessage = Message.createRequestMessage(index, begin, length);
 		sendMessage(requestMessage);
 	}
@@ -179,7 +205,29 @@ public class Client {
 	}
 	
 
-	private void handleMessage(Message message) throws Exception {
+	public void handleMessage(Message message) throws Exception {
+		
+		switch (message.getType()) {
+		case BITFIELD:
+			this.bitfield = message.getPayload();
+			break;
+		case CHOKE:
+			this.isChoked=true;
+			try {
+				sendUnchokeMessage();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			break;
+		case UNCHOKE:
+			this.isChoked=false;
+		default:
+			System.out.println("Got a message different than payload or choke/unchoke");
+			break;
+		}
+	}
+	
+	public void handleMessage(Message message, int blockIndex, ByteBuffer pieceBuffer) throws Exception {
 		
 		switch (message.getType()) {
 		case BITFIELD:
@@ -196,17 +244,38 @@ public class Client {
 		case UNCHOKE:
 			this.isChoked=false;
 		case PIECE:
-			handlePieceMessage(message);
+			handlePieceMessage(message,blockIndex,pieceBuffer);
+		case HAVE:
+			handleHaveMessage(message);
 		default:
-			System.out.println("Got a message different than payload or choke/unchoke");
+			System.out.println("Got an unknown message");
 			break;
 		}
 	}
+	
+	
+	private void handlePieceMessage(Message message, int blockIndex, ByteBuffer pieceBuffer) {
+		try {
+			message.parsePieceMessage(blockIndex, pieceBuffer, message);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+	}
 
-
-	private void handlePieceMessage(Message message) {
+	private void handleHaveMessage(Message message) {
 		// TODO Auto-generated method stub
 		
+	}
+
+
+
+
+
+	public Bitfield getBitfieldObject() {
+		
+		return new Bitfield(bitfield);
 	}
 
 }

@@ -28,7 +28,7 @@ public class Message {
     }
     
     
-    public static Message readMessage(byte[] messageBytes) {
+    public static Message createMessageObject(byte[] messageBytes) {
         System.out.println("messageBytes array contents: " + Arrays.toString(messageBytes));
         System.out.println("Received messageBytes length: " + messageBytes.length);
         if (messageBytes.length == 0) {
@@ -48,7 +48,7 @@ public class Message {
 
         return new Message(type, payload);
     }
-    
+//    
     public static int parseHaveMessage(Message message) throws WrongMessageTypeException, WrongPayloadLengthException {
     	if (message.getType()!=MessageType.HAVE) {
             throw new WrongMessageTypeException("Expected message type HAVE.");
@@ -60,8 +60,8 @@ public class Message {
     	int index =  ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN).getInt();
     	return index;
     }
-    
-    public static int parsePieceMessage(int index, byte[] buf, Message message) throws Exception {
+//    
+    public int parsePieceMessage(int index, ByteBuffer buf, Message message) throws Exception {
         if (message.getType() != MessageType.PIECE) {
             throw new Exception("Expected MessageType.PIECE, got" + message.getType());
         }
@@ -71,20 +71,21 @@ public class Message {
         }
 
         int parsedIndex = ByteBuffer.wrap(message.getPayload(), 0, 4).getInt();
-        if (parsedIndex!=index) {
-        	throw new Exception(String.format("Expected index %d, got %d", index, parsedIndex));
+        if (parsedIndex != index) {
+            throw new Exception(String.format("Expected index %d, got %d", index, parsedIndex));
         }
         int begin = ByteBuffer.wrap(message.getPayload(), 4, 4).getInt();
-        if (begin >= buf.length) {
-            throw new Exception(String.format("Begin offset too high. %d >= %d", begin, buf.length));
+        if (begin >= buf.capacity()) {
+            throw new Exception(String.format("Begin offset too high. %d >= %d", begin, buf.capacity()));
         }
 
         byte[] data = Arrays.copyOfRange(message.getPayload(), 8, message.getPayload().length);
-        if (begin + data.length > buf.length) {
-            throw new Exception(String.format("Data too long [%d] for offset %d with length %d", data.length, begin, buf.length));
+        if (begin + data.length > buf.capacity()) {
+            throw new Exception(String.format("Data too long [%d] for offset %d with capacity %d", data.length, begin, buf.capacity()));
         }
 
-        System.arraycopy(data, 0, buf, begin, data.length);
+        buf.position(begin);
+        buf.put(data);
         return data.length;
     }
     
