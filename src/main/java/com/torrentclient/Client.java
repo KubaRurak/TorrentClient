@@ -45,15 +45,22 @@ public class Client {
 	        if (performHandshake()) {
 	            if (receiveBitfield()) {
 	                clientSetSuccessfully = true;
-	                socket.setSoTimeout(0);
 	            }
 	        }
 	        
+	    } catch (SocketTimeoutException e) {
+	        System.out.println("Socket timeout occurred during communication.");
 	    } catch (IOException e) {
-	        System.out.println("Client timed out");
+	        e.printStackTrace();
 	    } catch (Exception e) {
 	        e.printStackTrace();
-	    } 
+	    } finally {
+	        try {
+	            socket.setSoTimeout(0); // Only disable timeout when you're done with the communication
+	        } catch (SocketException e) {
+	            e.printStackTrace();
+	        }
+	    }
 	    
 	    return clientSetSuccessfully;
 	}
@@ -94,7 +101,7 @@ public class Client {
 	                handleMessage(receivedMessage);
 	                
 	                if (this.bitfield != null) {
-	                    System.out.println("Success, can request pieces from peer");
+	                    System.out.println("Success, can request pieces from peer: " + peer.getIpAddress() + ":" + peer.getPort());
 	                    return true;
 	                }
 	            } else {
@@ -191,11 +198,15 @@ public class Client {
 		sendMessage(requestMessage);
 	}
 	
-	private void sendUnchokeMessage() throws IOException {
+	public void sendUnchokeMessage() throws IOException {
 		Message unchokeMessage = Message.createUnchokeMessage();
 		sendMessage(unchokeMessage);
 	}
-
+	
+	public void sendInterestedMessage() throws IOException {
+		Message interestedMessage = Message.createInterestedMessage();
+		sendMessage(interestedMessage);
+	}
 
 	private void sendMessage(Message message) throws IOException {
 		OutputStream outputStream = socket.getOutputStream();
@@ -221,6 +232,7 @@ public class Client {
 			break;
 		case UNCHOKE:
 			this.isChoked=false;
+			break;
 		default:
 			System.out.println("Got a message different than payload or choke/unchoke");
 			break;
@@ -231,9 +243,11 @@ public class Client {
 		
 		switch (message.getType()) {
 		case BITFIELD:
+			System.out.println("received bitfield message from handlemessage");
 			this.bitfield = message.getPayload();
 			break;
 		case CHOKE:
+			System.out.println("received choke message from handlemessage");
 			this.isChoked=true;
 			try {
 				sendUnchokeMessage();
@@ -242,11 +256,17 @@ public class Client {
 			}
 			break;
 		case UNCHOKE:
+			System.out.println("received unchoke message from handlemessage");
 			this.isChoked=false;
+			break;
 		case PIECE:
+			System.out.println("received piece message from handlemessage");
 			handlePieceMessage(message,blockIndex,pieceBuffer);
+			break;
 		case HAVE:
+			System.out.println("received have message from handlemessage");
 			handleHaveMessage(message);
+			break;
 		default:
 			System.out.println("Got an unknown message");
 			break;
@@ -258,7 +278,6 @@ public class Client {
 		try {
 			message.parsePieceMessage(blockIndex, pieceBuffer, message);
 		} catch (Exception e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		
@@ -269,6 +288,9 @@ public class Client {
 		
 	}
 
+	public boolean isSocketOpen() {
+	    return socket != null && !socket.isClosed();
+	}
 
 
 

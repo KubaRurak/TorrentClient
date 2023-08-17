@@ -9,7 +9,6 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.Socket;
-import java.net.SocketException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -27,9 +26,6 @@ import java.util.concurrent.Executors;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-import com.torrentclient.exceptions.WrongMessageTypeException;
-import com.torrentclient.exceptions.WrongPayloadLengthException;
 
 import jakarta.annotation.PreDestroy;
 import unet.bencode.variables.BencodeObject;
@@ -63,7 +59,7 @@ public class TorrentClientApplication implements CommandLineRunner {
             Handshake handshake = new Handshake(torrent.getInfoHash(), torrent.getPeerIdBytes());
             List<Peer> peerList = makePeerListFromResponse(responseWithPeerList);
             initializePieceQueue(torrent);
-            int numThreads = 4; // You can adjust the number of threads for concurrent connections
+            int numThreads = 1; // You can adjust the number of threads for concurrent connections
             connectionThreadPool = Executors.newFixedThreadPool(numThreads);
             for (Peer peer : peerList) {
                 connectionThreadPool.submit(() -> {
@@ -79,35 +75,55 @@ public class TorrentClientApplication implements CommandLineRunner {
         }
 	}
 	
-    private void attemptDownloadPiece(Client client, Torrent torrent) {
-        while (!pieceQueue.isEmpty()) {
-            Integer pieceIndex = pieceQueue.poll();
-            Bitfield bitfield = client.getBitfieldObject();
-            if (!bitfield.hasPiece(pieceIndex)) {
-                int pieceSize = getPieceSize(pieceIndex,torrent);
-                ByteBuffer pieceBuffer = ByteBuffer.allocate(pieceSize);
-                int blockSize = maxBlockSize;
-                int numOfBlocksInPiece = getNumberOfBlocksInPiece(pieceSize, blockSize);
-                try {
-                	for (int blockIndex = 0; blockIndex < numOfBlocksInPiece; blockIndex++) {
-                        int begin = blockIndex * blockSize;
-                        int blockLength = Math.min(blockSize, pieceSize - begin);
-	                    client.sendRequestMessage(pieceIndex, begin, blockSize);
-	                    byte[] data = client.receiveMessage();
-	                    Message message = Message.createMessageObject(data);
-	                    if (message.getType()==MessageType.PIECE) {
-	                    	message.parsePieceMessage(blockIndex, pieceBuffer, message);
-	                    }
-                	}
-                byte[] pieceData = pieceBuffer.array();
-                handleDownloadedPiece(pieceIndex, pieceData, torrent);
+	private void attemptDownloadPiece(Client client, Torrent torrent) {
+		try {
+			client.sendUnchokeMessage();
+			client.sendInterestedMessage();
+			System.out.println("Sending unchoke and interested message");
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}
+		System.out.println("attempting to download piece");
+		System.out.println("queue is empty: " + pieceQueue.isEmpty());
+		while (!pieceQueue.isEmpty() && client.isSocketOpen()) {
+			Integer pieceIndex = pieceQueue.poll();
+			System.out.println("Grabbed pieceIndex: " + pieceIndex + "from queue");
+			Bitfield bitfield = client.getBitfieldObject();
+			System.out.println("got client bitfield object");
+			if (bitfield.hasPiece(pieceIndex)) { 
+				System.out.println("bitfield has piece");
+				int pieceSize = getPieceSize(pieceIndex,torrent);
+				ByteBuffer pieceBuffer = ByteBuffer.allocate(pieceSize);
+				int blockSize = maxBlockSize;
+				int numOfBlocksInPiece = getNumberOfBlocksInPiece(pieceSize, blockSize);
+				int blockIndex=0;
+				try {
+					while (blockIndex<numOfBlocksInPiece) {
+						if (client.isChoked()) {
+							client.sendUnchokeMessage();
+						} else {
+							int begin = blockIndex * blockSize;
+							int blockLength = Math.min(blockSize, pieceSize - begin);
+							client.sendRequestMessage(blockIndex, begin, blockSize);
+							System.out.println("Sending a request to client: " + client.getPeer() + " for pieceIndex:" + pieceIndex + " at begin: " + begin + " with blocksize: " + blockSize);
+							byte[] data = client.receiveMessage();
+							Message message = Message.createMessageObject(data);
+							if (message.getType()==MessageType.PIECE) blockIndex++;
+							client.handleMessage(message, blockIndex, pieceBuffer);
+						}
+					}
+					byte[] pieceData = pieceBuffer.array();
+					handleDownloadedPiece(pieceIndex, pieceData, torrent);
 				} catch (Exception e) {
-					// TODO Auto-generated catch block
+					pieceQueue.add(pieceIndex);
 					e.printStackTrace();
+					break;
 				}
-            }
-        }
-    }
+			} else {
+				pieceQueue.add(pieceIndex);
+			}
+		}
+	}
     
 	private void handleDownloadedPiece(Integer pieceIndex, byte[] pieceData, Torrent torrent) {
 		if (checkIntegrity(pieceIndex, pieceData, torrent)) {
@@ -123,14 +139,16 @@ public class TorrentClientApplication implements CommandLineRunner {
 	}
 	
 	private void initializePieceQueue(Torrent torrent) {
-		int numberOfPieces = torrent.getPieces().length;
+		int numberOfPieces = torrent.getPieces().length/20;
 		downloaded = 0;
 		piecesLeft = numberOfPieces;
 		pieceQueue = new ArrayDeque<>();
+		initializePieceBuffers(torrent,numberOfPieces);
 		completedPieces = new boolean[numberOfPieces];
 		for (int i=0; i<numberOfPieces;i++) {
 			pieceQueue.add(i);
 		}
+		System.out.println("Initialized pieceQueue with " + numberOfPieces + " number of pieces");
 	}
     
     private boolean checkIntegrity(int pieceIndex, byte[] pieceData, Torrent torrent) {
@@ -234,8 +252,7 @@ public class TorrentClientApplication implements CommandLineRunner {
         disconnectAllSockets();
     }
     
-    private void initializePieceBuffers(Torrent torrent) {
-        int numberOfPieces = torrent.getPieces().length;
+    private void initializePieceBuffers(Torrent torrent, int numberOfPieces) {
         pieceBuffers = new ByteBuffer[numberOfPieces];
         for (int i = 0; i < numberOfPieces; i++) {
             pieceBuffers[i] = ByteBuffer.allocate((int) torrent.getPieceLength());
