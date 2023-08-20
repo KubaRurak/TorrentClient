@@ -3,6 +3,7 @@ package com.torrentclient;
 import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -32,7 +33,7 @@ public class Torrent {
     private byte[][] pieceHashes;
     private boolean isPrivate;
     private byte[] infoHash;
-    private String peerId = "ZBCDEFGHIJKLMNOPQRSA";
+    private String peerId;
 
     public Torrent(BencodeObject bencode) {
         this.announce = bencode.getString("announce");
@@ -48,9 +49,18 @@ public class Torrent {
         byte[] bytesInfo = infoDict.encode();
         this.infoHash = calculateInfoHash(bytesInfo);
         this.pieceHashes = splitPiecesIntoHashes(pieces);
+        this.peerId = generatePeerId();
     }
     
-    public String createRequestURL() {
+    private String generatePeerId() {
+    	StringBuilder sb = new StringBuilder();
+    	for (int i=0; i<20; i++) {
+    		sb.append((int)Math.random()*10);
+    	}
+    	return sb.toString();
+	}
+
+	public String createRequestURL() {
         String encodedInfoHash = urlEncode(infoHash);
         int port = 12345;
         long uploaded = 0;
@@ -62,7 +72,31 @@ public class Torrent {
         
         return query;
 
+    }
+    
+    public byte[] generateBitfield() {
+        // Get the number of pieces
+        int numberOfPieces = getPieceHashes().length;
+        
+        // Calculate the number of bytes needed
+        int bitfieldBytes = (int) Math.ceil((double) numberOfPieces / 8);
+        
+        // Create the bitfield, initialized to all zeros
+        byte[] bitfield = new byte[bitfieldBytes];
+        
+        // Create the message, considering 4 bytes for length, 1 for message type
+        byte[] data = new byte[bitfieldBytes + 5];
+        
+        // Set the message length
+        ByteBuffer.wrap(data).putInt(bitfieldBytes + 1); // +1 for the message type byte
 
+        // Set the message type (5 for bitfield according to the BitTorrent spec)
+        data[4] = 5;
+        
+        // Copy the bitfield
+        System.arraycopy(bitfield, 0, data, 5, bitfieldBytes);
+        
+        return data;
     }
     
     private byte[] calculateInfoHash(byte[] infoDictBytes) {
@@ -123,4 +157,9 @@ public class Torrent {
         UTF16,
         ASCII,
     }
+
+
+	public byte[] getPieceHash(int pieceIndex) {
+		return pieceHashes[pieceIndex];
+	}
 }
