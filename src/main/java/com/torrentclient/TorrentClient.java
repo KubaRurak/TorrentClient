@@ -6,7 +6,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -14,36 +13,35 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import jakarta.annotation.PreDestroy;
 import unet.bencode.variables.BencodeObject;
 
 public class TorrentClient implements PieceMessageCallback {
 	
-//	static String response = "d8:intervali900e5:peersld2:ip13:185.203.56.244:porti55266eed2:ip14:209.141.56.2364:porti6985eed2:ip13:45.158.186.114:porti54413eed2:ip15:134.249.136.1124:porti29905eed2:ip12:133.201.88.04:porti6882eed2:ip13:82.64.248.2444:porti24007eed2:ip13:82.196.124.874:porti16881eed2:ip12:185.203.56.64:porti59279eed2:ip12:61.205.220.44:porti59153eed2:ip13:130.61.89.1554:porti6881eed2:ip15:185.236.203.1244:porti43421eed2:ip15:149.102.137.2304:porti21250eed2:ip15:169.150.201.1634:porti48000eed2:ip14:31.192.237.1204:porti41722eed2:ip13:45.41.206.1214:porti53391eed2:ip15:142.113.144.1824:porti51765eed2:ip14:176.114.248.344:porti51453eed2:ip14:176.226.164.724:porti5555eed2:ip14:188.156.237.204:porti49164eed2:ip15:185.194.143.2014:porti26111eed2:ip13:62.153.208.984:porti3652eed2:ip13:185.149.90.214:porti51055eed2:ip15:189.245.179.2534:porti51765eed2:ip13:188.126.89.804:porti27049eed2:ip13:185.253.96.584:porti60246eed2:ip15:146.158.111.1894:porti51413eed2:ip13:93.221.180.904:porti6881eed2:ip14:199.168.73.1264:porti1330eed2:ip12:73.183.68.194:porti51413eed2:ip13:45.13.105.1354:porti51413eed2:ip12:212.7.200.654:porti12665eed2:ip13:82.65.147.1504:porti51414eed2:ip14:45.134.140.1404:porti6881eed2:ip13:51.159.104.654:porti7629eed2:ip14:68.134.157.2134:porti51413eed2:ip13:41.225.80.1504:porti1821eed2:ip14:120.229.36.2134:porti56339eed2:ip13:92.43.185.1114:porti61598eed2:ip12:31.22.89.1114:porti6897eed2:ip12:51.68.81.2274:porti6881eed2:ip12:185.148.1.834:porti52528eed2:ip12:189.6.26.1234:porti51413eed2:ip12:151.95.0.2464:porti51413eed2:ip13:87.227.189.894:porti55000eed2:ip15:185.213.154.1794:porti40455eed2:ip12:108.26.1.1554:porti6942eed2:ip12:62.12.77.1524:porti51413eed2:ip13:95.24.217.1984:porti35348eed2:ip12:85.29.89.1274:porti6881eed2:ip13:81.200.30.1344:porti13858eeee";
-    private List<Socket> activeSockets = new ArrayList<>();
-    private Queue<PieceState> pieceQueue;
     private ExecutorService connectionThreadPool;
     private final int maxBlockSize = 16384;
     private int downloaded;
     private int piecesLeft;
     private Torrent torrent;
-    private Map<Integer, PieceState> pieceStates = new HashMap<>();    
-    private final Map<Integer, ByteBuffer> currentPieceBuffers = new HashMap<>();
-	private String storagePath = "torrentfile/";
+	private String storagePath = "torrentfile" + File.separator + "downloads";
 	private int blocksPerPiece;
+	private ConcurrentHashMap<Integer,PieceState> pieceStates;
+    private Bitfield downloadedPiecesBitfield;
+    private Queue<PieceState> pieceQueue;
+    private Set<Integer> piecesBeingDownloaded;
 	
     private static final Logger logger = LoggerFactory.getLogger(TorrentClient.class);
 
@@ -52,7 +50,7 @@ public class TorrentClient implements PieceMessageCallback {
 	public void start() {
         torrent = initializeTorrent();
         setupConnectionThreadPool();
-        initializePieceQueue();
+        initiaLizeDataStructures();
 
         // Start downloading pieces
         List<Peer> peerList = getPeerList();
@@ -60,12 +58,10 @@ public class TorrentClient implements PieceMessageCallback {
 
         // Clean up resources
         connectionThreadPool.shutdown();
-        disconnectAllSockets();
 	}
     private Torrent initializeTorrent() {
         String filePath = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
-//        String filePath = "torrentfile/TAILS.torrent";
-//        String filePath = "torrentfile/debian-edu-12.1.0-amd64-netinst.iso.torrent";
+
         try {
             return createTorrentObjectFromFile(filePath);
         } catch (IOException e) {
@@ -75,7 +71,7 @@ public class TorrentClient implements PieceMessageCallback {
     }
 
     private void setupConnectionThreadPool() {
-        int numThreads = 7; // Adjust the number of threads as needed
+        int numThreads = 1; // Adjust the number of threads as needed
         connectionThreadPool = Executors.newFixedThreadPool(numThreads);
     }
 
@@ -98,11 +94,9 @@ public class TorrentClient implements PieceMessageCallback {
     }
     
     private void attemptDownloadPiece(Client client) {
-        final int MAX_RETRIES = 2;
-        int retryCount = 0;
         try {
             setupDownload(client);
-            processPieces(client, retryCount, MAX_RETRIES);
+            processPieces(client);
         } catch (IOException e) {
             e.printStackTrace();
         } catch (Exception e) {
@@ -111,151 +105,132 @@ public class TorrentClient implements PieceMessageCallback {
     }
 
     private void setupDownload(Client client) throws IOException {
-        try {
-			Thread.sleep(500);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
         client.sendInterestedMessage();
         logger.info("Sending interested message");
     }
 
-    private void processPieces(Client client, int retryCount, final int MAX_RETRIES) throws InterruptedException, IOException {
-        logger.info("Entered processPiece method");
-        while (!pieceQueue.isEmpty() && client.isSocketOpen() &&  retryCount < MAX_RETRIES) {
+    private void processPieces(Client client) throws InterruptedException, IOException {
+        while (!pieceQueue.isEmpty() && client.isSocketOpen()) {
             if (!client.isChoked()) {
-                PieceState currentPieceState = pieceQueue.peek();
-                int pieceIndex = currentPieceState.getPieceIndex();
-                logger.info("Grabbed pieceIndex: " + pieceIndex + " from queue");
-                logger.info("Checking if client Bitfield has piece : " + client.getBitfieldObject().hasPiece(pieceIndex));
-
-                if (client.getBitfieldObject().hasPiece(pieceIndex) && client.getOutstandingRequests().size()==0) {
-                	currentPieceState = pieceQueue.poll();
-                	pieceIndex = currentPieceState.getPieceIndex();
-                    int pieceSize = getPieceSize(pieceIndex);
-                    downloadPiece(client, pieceIndex, pieceSize);
-                } else {
-                    retryCount++; // assuming retryCount is to track the number of failed attempts
-                    Thread.sleep(1000); // introduce a delay before attempting the next piece
+                if (client.workQueue.size() < blocksPerPiece) {
+                    // If workQueue has less blocks than a typical piece, get a new piece and add its blocks
+                    PieceState currentPieceState = chooseRandomPiece(client);
+                    if (currentPieceState == null) continue; // No piece was chosen because of bitfield constraints
+                    
+                    int pieceIndex = currentPieceState.getPieceIndex();
+                    logger.info("Grabbed pieceIndex: " + pieceIndex + " from queue");
+                    
+                    // Populate the workQueue for this piece
+                    populateWorkQueue(client, pieceIndex, getPieceSize(pieceIndex));
                 }
+                
+                // Send block requests, whether they are from a newly populated workQueue or from an existing one
+                sendBlockRequests(client);
             }
-            handleIncomingMessages(client, retryCount, MAX_RETRIES);
-            Thread.sleep(1000);
+            
+            handleIncomingMessages(client);
         }
-
-//        if (retryCount >= MAX_RETRIES) {
-//            logger.info("Max retries reached for client. Closing connection.");
-//            client.closeConnection();
-//        }
-        
+    }
+    
+    void populateWorkQueue(Client client, int pieceIndex, int pieceSize) {
+        int blocks = pieceSize / maxBlockSize;
+        for (int i = 0; i < blocks; i++) {
+            BlockRequest request = new BlockRequest(pieceIndex, i * maxBlockSize, maxBlockSize);
+            client.workQueue.offer(request);
+        }
+        // Handling the last block, which might be smaller than maxBlockSize
+        if (pieceSize % maxBlockSize != 0) {
+            int begin = blocks * maxBlockSize;
+            BlockRequest request = new BlockRequest(pieceIndex, begin, pieceSize - begin);
+            client.workQueue.offer(request);
+        }
     }
 
-    private void handleIncomingMessages(Client client, int retryCount, final int MAX_RETRIES) throws InterruptedException, IOException {
+    private void sendBlockRequests(Client client) throws IOException {
+        while (client.currentOutstandingRequests < Client.MAX_OUTSTANDING_REQUESTS && !client.workQueue.isEmpty()) {
+            BlockRequest request = client.workQueue.poll();
+            client.sendRequestMessage(request);
+            client.outstandingRequests.add(request);
+            client.currentOutstandingRequests++;
+        }
+    }
+
+
+    private void handleIncomingMessages(Client client) throws InterruptedException, IOException {
         try {
             Message message = client.receiveAndParseMessage();
             client.handleMessage(message);
-            retryCount = 0; 
         } catch (SocketTimeoutException e) {
             logger.warn("Timed out in handleIncomingMessage");
-            logger.warn("Trying to resend request");
-            resendOutstandingRequests(client);
-            retryCount++;
         } catch (Exception e) {
             logger.error("An error occurred while handling incoming messages", e);
-//            client.setCurrentOutstandingRequests(0);
             client.closeConnection();
 
 		}
     }
 
-    private void downloadPiece(Client client, int pieceIndex, int pieceSize) {
-        if (!client.isSocketOpen()) return;
-
-        int blockSize = maxBlockSize;
-        int numOfBlocksInPiece = getNumberOfBlocksInPiece(pieceSize, blockSize);
-        int blockIndex = 0;
-        while (blockIndex < numOfBlocksInPiece && client.isSocketOpen() && client.canSendMoreRequests()) {
-            int begin = blockIndex * blockSize;
-            int blockLength = Math.min(blockSize, pieceSize - begin);
-
-            sendBlockRequest(client, pieceIndex, begin, blockLength);
-            client.incrementOutstandingRequests();
-            blockIndex++;
-        }
-        logger.info("End of requests, should go back to handling message");
-
-        // Then, let the attemptDownloadPiece method handle received messages.
-    }
-
-    private void sendBlockRequest(Client client, int pieceIndex, int begin, int blockLength) {
-        if (!client.isSocketOpen()) return;
-        try {
-            logger.info("Sending request message for pieceIndex: {} begin: {} and blocklength: {}", pieceIndex, begin, blockLength);
-            client.sendRequestMessage(pieceIndex, begin, blockLength);
-            BlockRequest request = new BlockRequest(pieceIndex, begin, blockLength);
-            client.getOutstandingRequests().add(request);
-        } catch (IOException e) {
-            logger.error("Failed to send block request for pieceIndex: {} begin: {} blocklength: {}", pieceIndex, begin, blockLength, e);
-        }
-    }
-    
     @Override
     public void onPieceMessageReceived(Message message, Client client) {
         try {
-            int pieceIndex = Message.getPieceIndexFromMessage(message);
-            client.decrementOutstandingRequests();
-            
-            // Calculate block index
-            int beginOffset = Message.getBeginOffsetFromMessage(message);
-            int blockIndex = beginOffset / maxBlockSize;
-            
-            // Update the PieceState
-            PieceState currentPieceState = findPieceStateByIndex(pieceIndex); // This should be a helper method you provide
-            currentPieceState.markBlockReceived(blockIndex);
-            
-            // Get or create the buffer for this piece
-            ByteBuffer pieceBuffer = currentPieceBuffers
-                .computeIfAbsent(pieceIndex, k -> ByteBuffer.allocate((int) torrent.getPieceLength()));
-            
-            // Parse the message
-            Message.parsePieceMessage(pieceIndex, pieceBuffer, message);
-            
-            // Check if the piece is complete
-            if (currentPieceState.isPieceComplete()) {
-                handleCompletedPiece(pieceIndex, pieceBuffer.array());
-                currentPieceBuffers.remove(pieceIndex);
+            int pieceIndex = extractPieceIndex(message);
+
+            ByteBuffer buf = retrieveOrCreateBuffer(client, pieceIndex);
+            PieceMessageInfo info = Message.parsePieceMessage(pieceIndex, buf, message); //buffer updated here
+            int blockIndex = info.getBegin() / maxBlockSize;
+            PieceState pieceState = getPieceStateByIndex(pieceIndex);
+            pieceState.markBlockReceived(blockIndex);
+            if (pieceState != null) {
+                pieceState.markBlockReceived(blockIndex);
+                logger.info("Piece {} Block {} received. Total blocks received for this piece: {}", pieceIndex, blockIndex, pieceState.getBlocksReceived());
+            }
+            if (!buf.hasRemaining()) {
+            	logger.info("Buffer for Piece {} is full",pieceIndex);
+                handleFullPiece(pieceIndex, buf, client);
             }
 
+            client.currentOutstandingRequests--;
+
         } catch (Exception e) {
-            logger.error("Error processing piece message", e);
-        }
-    }
-    
-    private void resendOutstandingRequests(Client client) {
-        if (!client.isSocketOpen()) return;
-
-        for (BlockRequest request : client.getOutstandingRequests()) {
-            sendBlockRequest(client, request.pieceIndex, request.begin, request.blockLength);
+            e.printStackTrace();
         }
     }
 
-	
-    
-    private PieceState findPieceStateByIndex(int pieceIndex) {
+    private PieceState getPieceStateByIndex(int pieceIndex) {
     	return pieceStates.get(pieceIndex);
 	}
+	private int extractPieceIndex(Message message) {
+        return ByteBuffer.wrap(message.getPayload(), 0, 4).getInt();
+    }
+	
 
-	private void handleCompletedPiece(int pieceIndex, byte[] pieceData) {
-        if (verifyPieceIntegrity(pieceData, torrent.getPieceHash(pieceIndex))) {
+    private ByteBuffer retrieveOrCreateBuffer(Client client, int pieceIndex) {
+        return client.pieceBuffers.computeIfAbsent(pieceIndex, k -> {
+            int pieceSize = getPieceSize(pieceIndex); // Assuming you have a method that provides piece size
+            return ByteBuffer.allocate(pieceSize);
+        });
+    }
+
+    private void handleFullPiece(int pieceIndex, ByteBuffer buf, Client client) {
+        byte[] pieceData = buf.array();
+        if (verifyPieceIntegrity(pieceData,pieceIndex)) {
+        	logger.info("piece is verified!");
             savePieceToDisk(pieceIndex, pieceData, torrent.getName());
-            logger.info("Succesfully completed piece nr: " + pieceIndex);
+//           SET BITFIELD FOR MYSELF
+            client.pieceBuffers.remove(pieceIndex);
+            piecesBeingDownloaded.remove(pieceIndex);
         } else {
-        	pieceQueue.add(new PieceState(blocksPerPiece, pieceIndex));
+            handleCorruptPiece(buf, pieceIndex);
         }
     }
 
-    private boolean verifyPieceIntegrity(byte[] pieceData, byte[] expectedHash) {
+    private void handleCorruptPiece(ByteBuffer buf, int pieceIndex) {
+        buf.clear();
+        pieceQueue.offer(new PieceState(blocksPerPiece, pieceIndex)); // Ensure you create a new PieceState appropriately
+    }
+
+
+    private boolean verifyPieceIntegrity(byte[] pieceData, int pieceIndex) {
+    	byte[] expectedHash = torrent.getPieceHash(pieceIndex);
         byte[] calculatedHash = computeSHA1(pieceData);
         return Arrays.equals(expectedHash, calculatedHash);
     }
@@ -272,34 +247,99 @@ public class TorrentClient implements PieceMessageCallback {
 
     private void savePieceToDisk(int pieceIndex, byte[] pieceData, String torrentName) {
         String fragmentFileName = storagePath + File.separator + torrentName + ".piece." + pieceIndex;
+        logger.info("Attempting to save Piece {} to disk with name {}",pieceIndex,fragmentFileName);
+        
+        // Ensure directories exist
+        File file = new File(fragmentFileName);
+        File parentDir = file.getParentFile();
+        if (!parentDir.exists()) {
+            parentDir.mkdirs();
+        }
         
         try (FileOutputStream fos = new FileOutputStream(fragmentFileName)) {
             fos.write(pieceData);
         } catch (IOException e) {
             e.printStackTrace();
-            // Handle this exception, perhaps by logging or notifying the user.
         }
     }
 	
+    private void initiaLizeDataStructures() {
+    	initializeBitfield();
+    	initializePieceQueue();
+    	initializePiecesBeingDownloadedSet();
+    	initializePieceStatesMap();
+    }
+    
     private void initializePieceQueue() {
+    	pieceQueue = new ConcurrentLinkedQueue<>();
         int numberOfPieces = torrent.getPieces().length / 20;
-        downloaded = 0;
-        piecesLeft = numberOfPieces;
-        pieceQueue = new ArrayDeque<>();
-        
-        
-        this.blocksPerPiece = (int) torrent.getPieceLength() / maxBlockSize; // assuming maxBlockSize is defined elsewhere
-        
-        for (int i=0; i<100; i++) {  // you seem to want only the first 5 pieces for testing?
-            pieceQueue.add(new PieceState(blocksPerPiece, i));
+        this.blocksPerPiece = (int) torrent.getPieceLength() / maxBlockSize;
+        List<PieceState> pieceList = new ArrayList<>();
+        for (int i = 0; i < numberOfPieces; i++) {
+            if (!downloadedPiecesBitfield.hasPiece(i)) {
+                pieceList.add(new PieceState(blocksPerPiece, i));
+            }
         }
-        logger.info("Initialized pieceQueue with " + numberOfPieces + " number of pieces");
+        Collections.shuffle(pieceList); // Randomize the order
+        pieceQueue.addAll(pieceList); // Add all the shuffled pieces to the queue
+    }
+    
+    private void initializePieceStatesMap() {
+        pieceStates = new ConcurrentHashMap<>();
+        int numberOfPieces = torrent.getPieces().length / 20;
+        for (int i = 0; i < numberOfPieces; i++) {
+            PieceState pieceState = new PieceState(blocksPerPiece, i);
+            if (downloadedPiecesBitfield.hasPiece(i)) {
+                pieceState.markComplete(); // Set as downloaded
+            }
+            pieceStates.put(i, pieceState);
+        }
+    }
+    
+    private void initializePiecesBeingDownloadedSet() {
+    	piecesBeingDownloaded = ConcurrentHashMap.newKeySet();
+    }
+    
+    private void initializeBitfield() {
+        int numberOfPieces = torrent.getPieces().length / 20;
+        byte[] initialBitfieldData = new byte[(numberOfPieces + 7) / 8];  // Round up to the nearest byte
+        downloadedPiecesBitfield = new Bitfield(initialBitfieldData);
+        for (int i = 0; i < numberOfPieces; i++) {
+            if (isPieceDownloaded(i)) {
+                downloadedPiecesBitfield.setPiece(i);
+            }
+        }
+    }
+    
+    private boolean isPieceDownloaded(int pieceIndex) {
+        String pieceFileName = storagePath + File.separator + torrent.getName() + ".piece." + pieceIndex;
+        File pieceFile = new File(pieceFileName);
+        return pieceFile.exists();
+    }
+    
+    PieceState chooseRandomPiece(Client client) {
+        int piecesChecked = 0;
+        int queueSize = pieceQueue.size();
+
+        while (piecesChecked < queueSize && !pieceQueue.isEmpty()) {
+            PieceState piece = pieceQueue.poll(); // Remove and return the head
+            int pieceIndex = piece.getPieceIndex();
+            piecesChecked++;
+
+            if (!piecesBeingDownloaded.contains(pieceIndex) && client.getBitfieldObject().hasPiece(pieceIndex)) {
+                piecesBeingDownloaded.add(pieceIndex);
+                return piece;
+            } else {
+                pieceQueue.offer(piece); // Put the piece back at the end of the queue
+            }
+        }
+        return null; // All pieces are being downloaded, the client doesn't have them, or the queue is empty
     }
 
   
     
 
-	private int getPieceSize(int pieceIndex) {
+	int getPieceSize(int pieceIndex) {
         long numPieces = torrent.getPieces().length;
         if (pieceIndex == numPieces - 1) {
         	int remainingData = (int) (torrent.getLength()%torrent.getPieceLength());
@@ -309,11 +349,6 @@ public class TorrentClient implements PieceMessageCallback {
         }
     }
     
-    private int getNumberOfBlocksInPiece(int pieceSize, int blockSize) {
-        return (int) Math.ceil(pieceSize/blockSize);
-    }
-
-
 	
 	private List<Peer> makePeerListFromResponse(String responseWithPeerList) {
 	    BencodeObject bencodeResponse = new BencodeObject(responseWithPeerList.getBytes());
@@ -364,19 +399,6 @@ public class TorrentClient implements PieceMessageCallback {
 	    return response;
 	}
 	
-    private void disconnectAllSockets() {
-        for (Socket socket : activeSockets) {
-            try {
-                socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-    
-    @PreDestroy
-    public void onApplicationExit() {
-        disconnectAllSockets();
-    }
-
+	
+	
 }

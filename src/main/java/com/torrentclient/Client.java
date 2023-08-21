@@ -1,6 +1,5 @@
 package com.torrentclient;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -11,10 +10,13 @@ import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
-import java.util.BitSet;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,9 +28,6 @@ import lombok.Data;
 
 @Data
 public class Client {
-	
-    public static final int MAX_OUTSTANDING_REQUESTS = 1;
-    private int currentOutstandingRequests = 0;
 	
     private final PieceMessageCallback callback;
     
@@ -43,7 +42,11 @@ public class Client {
 	private Socket socket;
 	private Torrent torrent;
 	
-//	Set<BlockRequest> outstandingRequests = ConcurrentHashMap.newKeySet();
+    public Queue<BlockRequest> workQueue;
+    public int currentOutstandingRequests;
+    public final static int MAX_OUTSTANDING_REQUESTS = 5; 
+    public Set<BlockRequest> outstandingRequests;
+	public Map<Integer,ByteBuffer> pieceBuffers; // pieceIndex, buffer
 
     private static final Logger logger = LoggerFactory.getLogger(Client.class);
 
@@ -55,13 +58,17 @@ public class Client {
 		this.callback = callback;
 		this.peer = peer;
 		this.handshake=handshake;
+        this.workQueue = new ConcurrentLinkedQueue<>(); 
+        this.currentOutstandingRequests = 0;
+        this.outstandingRequests = Collections.synchronizedSet(new HashSet<>());
+        this.pieceBuffers = new HashMap<>();
 	}
 
 
 	public boolean initializeConnection() {
 	    try {
 	        connectToPeer();
-	        socket.setSoTimeout(30000);
+	        socket.setSoTimeout(5000);
 	        
 	        if (performHandshake()) {
 	            if (receiveBitfield()) {
@@ -108,7 +115,7 @@ public class Client {
 	private boolean receiveBitfield() {
 	    try {
 	        while (handshakeCompleted) {
-	            logger.info("Trying to receive message");
+	            logger.debug("Trying to receive message");
 	            byte[] messageResponse = receiveMessage();
 	            
 	            if (messageResponse != null) {
@@ -117,7 +124,7 @@ public class Client {
 	                handleMessage(receivedMessage);
 	                
 	                if (this.bitfield != null) {
-	                    logger.info("Success, can request pieces from peer: " + peer.getIpAddress() + ":" + peer.getPort());
+	                    logger.info("Got bitfield and handshake from peer: " + peer.getIpAddress() + ":" + peer.getPort());
 	                    return true;
 	                }
 	            } else {
@@ -190,14 +197,12 @@ public class Client {
 	public byte[] receiveMessage() throws IOException {
 		
 		socket.setSoTimeout(150000);
-		logger.info("Trying to receive message");
+		logger.debug("Trying to receive message");
 	    InputStream inputStream = socket.getInputStream();
 
 	    byte[] lengthBuffer = new byte[4];
 	    int bytesRead = inputStream.read(lengthBuffer);
 	    
-	    logger.info("Created lengthbuffer");
-
 	    if (bytesRead == -1) {
 	        logger.info("Input stream closed by the other end.");
 	        throw new IOException("Connection closed by the other end.");
@@ -236,6 +241,14 @@ public class Client {
 	}
 	
 	public void sendRequestMessage(int index, int begin, int length) throws IOException {
+		Message requestMessage = Message.createRequestMessage(index, begin, length);
+		sendMessage(requestMessage);
+	}
+	
+	public void sendRequestMessage(BlockRequest blockRequest) throws IOException {
+		int index = blockRequest.getPieceIndex();
+		int begin = blockRequest.getBegin();
+		int length = blockRequest.getBlockLength();
 		Message requestMessage = Message.createRequestMessage(index, begin, length);
 		sendMessage(requestMessage);
 	}
@@ -333,19 +346,6 @@ public class Client {
 		return new Bitfield(this.bitfield);
 	}
 	
-    public synchronized void incrementOutstandingRequests() {
-        currentOutstandingRequests++;
-    }
-
-    public synchronized void decrementOutstandingRequests() {
-        currentOutstandingRequests--;
-    }
-
-    public synchronized boolean canSendMoreRequests() {
-        return currentOutstandingRequests < MAX_OUTSTANDING_REQUESTS;
-    }
-
-
     public void closeConnection() {
         try {
             if (socket != null) {

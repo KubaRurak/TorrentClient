@@ -2,6 +2,8 @@ package com.torrentclient;
 
 import java.util.Objects;
 
+import lombok.Data;
+@Data
 public class BlockRequest {
 
 
@@ -15,20 +17,4 @@ public class BlockRequest {
         this.blockLength = blockLength;
     }
     
-    @Override
-	public int hashCode() {
-		return Objects.hash(begin, blockLength, pieceIndex);
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj)
-			return true;
-		if (obj == null)
-			return false;
-		if (getClass() != obj.getClass())
-			return false;
-		BlockRequest other = (BlockRequest) obj;
-		return begin == other.begin && blockLength == other.blockLength && pieceIndex == other.pieceIndex;
-	}
 }
