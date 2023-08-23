@@ -77,7 +77,7 @@ public class Client {
 	        }
 	        
 	    } catch (SocketTimeoutException e) {
-	        logger.info("Socket timeout occurred during communication in initializeConnection");
+	        logger.debug("Socket timeout occurred during communication in initializeConnection");
 	    } catch (IOException e) {
 	        logger.error("IO exception in initializeConnection", e);
 	    } finally {
@@ -107,7 +107,7 @@ public class Client {
 				this.infoHash = receivedHandshake.getInfoHash();
 				this.handshakeCompleted = true;
 			}
-			logger.info("HANDSHAKE COMPLETE: " + this.handshakeCompleted);
+			logger.debug("HANDSHAKE COMPLETE: " + this.handshakeCompleted);
 			return true;
 		}
 		return false;
@@ -116,7 +116,7 @@ public class Client {
 	private boolean receiveBitfield() {
 	    try {
 	        while (handshakeCompleted) {
-	            logger.info("Trying to receive message");
+	            logger.debug("Trying to receive message");
 	            byte[] messageResponse = receiveMessage();
 	            
 	            if (messageResponse != null) {
@@ -125,11 +125,11 @@ public class Client {
 	                handleMessage(receivedMessage);
 	                
 	                if (this.bitfield != null) {
-	                    logger.info("Got bitfield and handshake from peer: " + peer.getIpAddress() + ":" + peer.getPort());
+	                    logger.debug("Got bitfield and handshake from peer: " + peer.getIpAddress() + ":" + peer.getPort());
 	                    return true;
 	                }
 	            } else {
-	                logger.info("No response from peer: " + peer.getIpAddress() + ":" + peer.getPort());
+	                logger.debug("No response from peer: " + peer.getIpAddress() + ":" + peer.getPort());
 	                return false;
 	            }
 	        }
@@ -147,7 +147,7 @@ public class Client {
 		int peerPort = this.peer.getPort();
 		this.socket = new Socket();
 		socket.connect(new InetSocketAddress(peerIP, peerPort), 3000);
-		logger.info("Connected to peer Ip: " + peerIP);
+		logger.debug("Connected to peer Ip: " + peerIP);
 	}
 
 	public void disconnect() {
@@ -179,7 +179,7 @@ public class Client {
 	        totalBytesRead += bytesRead;
 	    }
 
-	    logger.info("Received handshake: " + Arrays.toString(buffer));
+	    logger.debug("Received handshake: " + Arrays.toString(buffer));
 	    return buffer;
 	}
 	
@@ -187,9 +187,9 @@ public class Client {
 	    byte[] data = this.receiveMessage();
 
 	    if(data == null) {
-	        logger.info("Received a keep-alive message or empty data.");
+	        logger.debug("Received a keep-alive message or empty data.");
 	    } else {
-	        logger.info("Received message with length: " + data.length);
+	        logger.debug("Received message with length: " + data.length);
 	    }
 
 	    return Message.createMessageObject(data);
@@ -198,14 +198,14 @@ public class Client {
 	public byte[] receiveMessage() throws IOException {
 		
 		socket.setSoTimeout(150000);
-		logger.info("Trying to receive message");
+		logger.debug("Trying to receive message");
 	    InputStream inputStream = socket.getInputStream();
 
 	    byte[] lengthBuffer = new byte[4];
 	    int bytesRead = inputStream.read(lengthBuffer);
 	    
 	    if (bytesRead == -1) {
-	        logger.info("Input stream closed by the other end.");
+	        logger.debug("Input stream closed by the other end.");
 	        throw new IOException("Connection closed by the other end.");
 	    }
 
@@ -217,7 +217,7 @@ public class Client {
 	    int length = ByteBuffer.wrap(lengthBuffer).order(ByteOrder.BIG_ENDIAN).getInt();
 
 	    if (length == 0) {
-	        logger.info("Received a keep-alive message with 0 length.");
+	        logger.debug("Received a keep-alive message with 0 length.");
 	        return null; // This indicates a keep-alive message.
 	    }
 
@@ -234,7 +234,7 @@ public class Client {
 
 	        totalBytesRead += bytesRead;
 
-	        logger.info("Read " + bytesRead + " bytes. Total bytes read so far: " + totalBytesRead);
+	        logger.debug("Read " + bytesRead + " bytes. Total bytes read so far: " + totalBytesRead);
 	    }
 
 	    return message;
@@ -276,14 +276,14 @@ public class Client {
 		OutputStream outputStream = socket.getOutputStream();
 		byte[] messageBytes = message.serialize();
 		outputStream.write(messageBytes);
-		logger.info(bytesToHex(messageBytes));
+		logger.debug(bytesToHex(messageBytes));
 		outputStream.flush();
 	}
 	
 	private void sendMessage(byte[] messageBytes) throws IOException {
 		OutputStream outputStream = socket.getOutputStream();
 		outputStream.write(messageBytes);
-		logger.info(bytesToHex(messageBytes));
+		logger.debug(bytesToHex(messageBytes));
 		outputStream.flush();
 	}
 	
@@ -306,25 +306,26 @@ public class Client {
 			this.bitfield = message.getPayload();
 			break;
 		case CHOKE:
-			logger.info("GOT CHOKE MESSAGE");
+			logger.debug("GOT CHOKE MESSAGE");
 			socket.setSoTimeout(3000);
 			this.isChoked=true;
 			sendUnchokeMessage();
 			break;
 		case UNCHOKE:
-			logger.info("GOT UNCHOKED MESSAGE");
+			logger.debug("GOT UNCHOKED MESSAGE");
 			socket.setSoTimeout(150000);
 			this.isChoked=false;
 			break;
 		case PIECE:
-			logger.info("GOT PIECE MESSAGE");
+			logger.debug("GOT PIECE MESSAGE");
+			socket.setSoTimeout(150000);
             callback.onPieceMessageReceived(message, this);
             break;
 		case HAVE:
 			handleHaveMessage(message);
 			break;
 		default:
-			logger.info("Got a message of type: " + message.getType());
+			logger.debug("Got a message of type: " + message.getType());
 			break;
 		}
 	}
@@ -333,7 +334,7 @@ public class Client {
 
 	private void handleHaveMessage(Message message) throws WrongMessageTypeException, WrongPayloadLengthException {
 		int index = Message.parseHaveMessage(message);
-		logger.info("Got have message for index: " + index);
+		logger.debug("Got have message for index: " + index);
 	}
 	
 
@@ -351,9 +352,20 @@ public class Client {
             if (socket != null) {
                 socket.close();
             }
-            logger.info("Connection successfully closed.");
+            logger.debug("Connection successfully closed.");
         } catch (IOException e) {
-            logger.info("Error closing connection.");
+            logger.debug("Error closing connection.");
         }
     }
+
+
+	@Override
+	public String toString() {
+		return "Client [callback=" + callback + ", peer=" + peer +  ", infoHash="
+				+ Arrays.toString(infoHash) + ", peerId=" + Arrays.toString(peerId) + ", handshakeCompleted="
+				+ handshakeCompleted + ", isChoked=" + isChoked + ", bitfield=" + Arrays.toString(bitfield)
+				+ ", clientSetSuccessfully=" + clientSetSuccessfully + ", socket=" + socket 
+				+ ", workQueue=" + workQueue + ", currentOutstandingRequests=" + currentOutstandingRequests
+				+ ", outstandingRequests=" + outstandingRequests + ", pieceBuffers=" + pieceBuffers.size() + "]";
+	}
 }

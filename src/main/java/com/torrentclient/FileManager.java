@@ -21,8 +21,7 @@ public class FileManager {
 
     public void savePieceToDisk(int pieceIndex, byte[] pieceData) {
         String fragmentFileName = storagePath + File.separator + torrentName + ".piece." + pieceIndex;
-        logger.info("Attempting to save Piece {} to disk with name {}", pieceIndex, fragmentFileName);
-        logger.info("Saving piece {}", pieceIndex);
+        logger.debug("Saving piece {}", pieceIndex);
 
         // Ensure directories exist
         File file = new File(fragmentFileName);
@@ -38,21 +37,39 @@ public class FileManager {
         }
     }
 
-    public void mergeFiles(int numberOfPieces) throws IOException {
-        String outputFile = torrentName;
-
+    public void mergeFiles(int numberOfPieces, long torrentLength) {
+        String outputFile = storagePath + File.separator + torrentName;
+        logger.info("Merging files");
         // Merge process
         try (FileOutputStream fos = new FileOutputStream(outputFile)) {
             for (int i = 0; i < numberOfPieces; i++) {
                 File pieceFile = new File(storagePath + File.separator + torrentName + ".piece." + i);
                 Files.copy(pieceFile.toPath(), fos);
             }
+        } catch (IOException e) {
+            logger.warn("Merging failed", e); 
+            return;  
         }
-
-        // If merging is successful, delete the pieces in a second iteration
-        for (int i = 0; i < numberOfPieces; i++) {
-            File pieceFile = new File(storagePath + File.separator + torrentName + ".piece." + i);
-            Files.deleteIfExists(pieceFile.toPath());
+        File mergedFile = new File(outputFile);
+        long expectedSize = torrentLength;  
+        if (mergedFile.length() == expectedSize) {
+        	logger.info("Merging success, downloading parts");
+            for (int i = 0; i < numberOfPieces; i++) {
+                File pieceFile = new File(storagePath + File.separator + torrentName + ".piece." + i);
+                try {
+                    Files.deleteIfExists(pieceFile.toPath());
+                } catch (IOException e) {
+                    logger.warn("Failed to delete piece file: " + pieceFile.getName(), e);
+                }
+            }
+        } else {
+            logger.warn("Merged file size doesn't match expected size. Not deleting piece files.");
         }
+    }
+    
+    public boolean isPieceDownloaded(int pieceIndex) {
+        String pieceFileName = storagePath + File.separator + torrentName + ".piece." + pieceIndex;
+        File pieceFile = new File(pieceFileName);
+        return pieceFile.exists();
     }
 }

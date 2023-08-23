@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,21 +43,23 @@ public class TorrentClient implements PieceMessageCallback {
 	
     private static final Logger logger = LoggerFactory.getLogger(TorrentClient.class);
 
-
-	
     public void start() {
         initialize();
         process();
+        finalizeDownload();
         cleanup();
     }
 
     private void initialize() {
         torrent = Torrent.fromFile(path);
         setupConnectionThreadPool();
+        fileManager = new FileManager(storagePath, torrent.getName());
         initializeDataStructures();
+        if (isDownloadComplete()) {
+        	finalizeDownload();
+        }
         speedLogger = new SpeedLogger(numberOfPieces, downloadedPiecesBitfield);
         speedLogger.start();
-        fileManager = new FileManager(storagePath, torrent.getName());
     }
 
     private void process() {
@@ -65,6 +68,7 @@ public class TorrentClient implements PieceMessageCallback {
     }
 
     private void cleanup() {
+    	logger.debug("Shutting down connections");
         connectionThreadPool.shutdown();
         try {
             connectionThreadPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
@@ -72,16 +76,13 @@ public class TorrentClient implements PieceMessageCallback {
             logger.error("Download threads interrupted", e);
         }
         
-        finalizeDownload();
     }
 
     private void finalizeDownload() {
         if (isDownloadComplete()) {
-            try {
-                fileManager.mergeFiles(numberOfPieces);
-            } catch (IOException e) {
-                logger.error("Failed to merge files after download", e);
-            }
+            fileManager.mergeFiles(numberOfPieces, torrent.getLength());
+            cleanup();
+            System.exit(0);
         } else {
             logger.error("Download was not completed successfully");
         }
@@ -122,37 +123,52 @@ public class TorrentClient implements PieceMessageCallback {
     }
 
     private void setupDownload(Client client) throws IOException {
+    	if (isDownloadComplete()) finalizeDownload();
         client.sendInterestedMessage();
-        logger.info("Sending interested message");
+        logger.debug("Sending interested message");
     }
-
+    
     private void processPieces(Client client) throws InterruptedException, IOException {
-        while (!pieceQueue.isEmpty() && client.isSocketOpen()) {
+    	logger.debug("Entering processPiece for client" + client);
+    	logger.debug("Initial state: pieceQueue size: " + pieceQueue.size() + ", piecesBeingDownloaded size: " + piecesBeingDownloaded.size());
+    	while ((!pieceQueue.isEmpty() || !piecesBeingDownloaded.isEmpty() || !client.workQueue.isEmpty()) && client.isSocketOpen()) {
             if (!client.isChoked()) {
+            	logger.debug("Inside loop: pieceQueue size: " + pieceQueue.size() + ", piecesBeingDownloaded size: " + piecesBeingDownloaded.size());
                 if (client.workQueue.size() < blocksPerPiece) {
                     // If workQueue has less blocks than a typical piece, get a new piece and add its blocks
-                    PieceState currentPieceState = chooseRandomPiece(client);
-                    if (currentPieceState == null) continue; // No piece was chosen because of bitfield constraints
-                    
-                    int pieceIndex = currentPieceState.getPieceIndex();
-                    logger.info("Grabbed pieceIndex: " + pieceIndex + " from queue");
-                    
-                    // Populate the workQueue for this piece
-                    populateWorkQueue(client, pieceIndex, torrent.getPieceSize(pieceIndex));
+                    Optional<PieceState> optionalPieceState = chooseRandomPiece(client);
+                    logger.debug("Client workQueue size: " + client.workQueue.size());
+                    logger.debug("Client currentOutstandingRequests: " + client.currentOutstandingRequests);
+                    logger.debug("Client outstandingRequests size: " + client.outstandingRequests.size());
+                    if (optionalPieceState.isPresent()) {
+                        PieceState currentPieceState = optionalPieceState.get();
+                        int pieceIndex = currentPieceState.getPieceIndex();
+                        piecesBeingDownloaded.add(pieceIndex);
+                        logger.debug("Grabbed pieceIndex: " + pieceIndex + " from queue");
+                        logger.debug("Before populating workQueue. workQueue size: " + client.workQueue.size());
+                        populateWorkQueueIfNeeded(client, pieceIndex);
+                        logger.debug("After populating workQueue. workQueue size: " + client.workQueue.size()); 
+                    }
                 }
-                
-                // Send block requests, whether they are from a newly populated workQueue or from an existing one
                 sendBlockRequests(client);
             }
-            
             handleIncomingMessages(client);
         }
-        logger.info("Thread for client " + client + " is finishing execution.");
-
+        logger.debug("Exiting processPiece for client" + client);
+    }
+    
+    
+    private void populateWorkQueueIfNeeded(Client client, int pieceIndex) {
+        if (!needsMoreBlocks(client)) {
+        	logger.debug("Doesnt need more blocks, returning");
+        	return; 
+        }
+        populateWorkQueue(client, pieceIndex, torrent.getPieceSize(pieceIndex));
     }
     
     void populateWorkQueue(Client client, int pieceIndex, int pieceSize) {
         int blocks = pieceSize / maxBlockSize;
+        logger.debug("Number of blocks {} for piece index {}", blocks, pieceIndex);
         for (int i = 0; i < blocks; i++) {
             BlockRequest request = new BlockRequest(pieceIndex, i * maxBlockSize, maxBlockSize);
             client.workQueue.offer(request);
@@ -166,12 +182,15 @@ public class TorrentClient implements PieceMessageCallback {
     }
 
     private void sendBlockRequests(Client client) throws IOException {
+    	logger.debug("Sending block requests. Initial outstanding requests: " + client.currentOutstandingRequests);
+    	logger.debug("Before sending requests - current workQueue size: " + client.workQueue.size());
         while (client.currentOutstandingRequests < Client.MAX_OUTSTANDING_REQUESTS && !client.workQueue.isEmpty()) {
             BlockRequest request = client.workQueue.poll();
             client.sendRequestMessage(request);
             client.outstandingRequests.add(request);
             client.currentOutstandingRequests++;
         }
+        logger.debug("Finished sending block requests. Total outstanding requests: " + client.currentOutstandingRequests);
     }
 
 
@@ -197,23 +216,23 @@ public class TorrentClient implements PieceMessageCallback {
     public void onPieceMessageReceived(Message message, Client client) {
         try {
             int pieceIndex = extractPieceIndex(message);
-
             ByteBuffer buf = retrieveOrCreateBuffer(client, pieceIndex);
             PieceMessageInfo info = Message.parsePieceMessage(pieceIndex, buf, message); //buffer updated here
             int blockIndex = info.getBegin() / maxBlockSize;
             PieceState pieceState = getPieceStateByIndex(pieceIndex);
             pieceState.markBlockReceived(blockIndex);
+            client.currentOutstandingRequests--;
+            BlockRequest blockRequestToRemove = new BlockRequest(pieceIndex, info.getBegin(), maxBlockSize); // Adjusted here
+            client.outstandingRequests.remove(blockRequestToRemove);
+            
             if (pieceState != null) {
                 pieceState.markBlockReceived(blockIndex);
-                logger.info("Piece {} Block {} received. Total blocks received for this piece: {}", pieceIndex, blockIndex, pieceState.getBlocksReceived());
+                logger.debug("Piece {} Block {} received. Total blocks received for this piece: {}", pieceIndex, blockIndex, pieceState.getBlocksReceived());
             }
             if (!buf.hasRemaining()) {
-            	logger.info("Buffer for Piece {} is full",pieceIndex);
+            	logger.debug("Buffer for Piece {} is full",pieceIndex);
                 handleFullPiece(pieceIndex, buf, client);
             }
-
-            client.currentOutstandingRequests--;
-
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -229,7 +248,7 @@ public class TorrentClient implements PieceMessageCallback {
 
     private ByteBuffer retrieveOrCreateBuffer(Client client, int pieceIndex) {
         return client.pieceBuffers.computeIfAbsent(pieceIndex, k -> {
-            int pieceSize = torrent.getPieceSize(pieceIndex); // Assuming you have a method that provides piece size
+            int pieceSize = torrent.getPieceSize(pieceIndex);
             return ByteBuffer.allocate(pieceSize);
         });
     }
@@ -237,12 +256,15 @@ public class TorrentClient implements PieceMessageCallback {
     private void handleFullPiece(int pieceIndex, ByteBuffer buf, Client client) {
         byte[] pieceData = buf.array();
         if (verifyPieceIntegrity(pieceData,pieceIndex)) {
-        	logger.info("piece is verified!");
+        	logger.debug("piece is verified!");
             fileManager.savePieceToDisk(pieceIndex, pieceData);
             speedLogger.addBytesDownloaded(torrent.getPieceLength());
             downloadedPiecesBitfield.setPiece(pieceIndex);
             client.pieceBuffers.remove(pieceIndex);
             piecesBeingDownloaded.remove(pieceIndex);
+            if (isDownloadComplete()) {
+            	finalizeDownload();
+            }
         } else {
             handleCorruptPiece(buf, pieceIndex);
         }
@@ -259,17 +281,41 @@ public class TorrentClient implements PieceMessageCallback {
         byte[] calculatedHash = computeSHA1(pieceData);
         return Arrays.equals(expectedHash, calculatedHash);
     }
-
-    private byte[] computeSHA1(byte[] data) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
-            return md.digest(data);
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-            return null;
-        }
+    
+    
+    private boolean shouldDownloadPiece(Client client, int pieceIndex) {
+        return !piecesBeingDownloaded.contains(pieceIndex) && client.getBitfieldObject().hasPiece(pieceIndex);
     }
-
+    
+    private boolean needsMoreBlocks(Client client) {
+        return client.workQueue.size() < blocksPerPiece;
+    }
+    
+    Optional<PieceState> chooseRandomPiece(Client client) {
+    	logger.debug("Choosing a random piece");
+        int piecesChecked = 0;
+        int queueSize = pieceQueue.size();
+        while (piecesChecked < queueSize && !pieceQueue.isEmpty()) {
+            PieceState piece = pieceQueue.poll();
+            int pieceIndex = piece.getPieceIndex();
+            logger.debug("PiecesBeingDownloaded contains pieceIndex {} : {}",pieceIndex, piecesBeingDownloaded.contains(pieceIndex));
+            logger.debug("Does client have that piece? : " + client.getBitfieldObject().hasPiece(pieceIndex));
+            if (shouldDownloadPiece(client, pieceIndex)) {
+            	logger.debug("Chosen piece index: " + pieceIndex);
+                return Optional.of(piece);
+            } else {
+            	logger.debug("returning Piece index " + pieceIndex);
+                pieceQueue.offer(piece);
+                logger.debug("current PieceQueue size " + pieceQueue.size());
+            }
+            piecesChecked++;
+        }
+        return Optional.empty();
+    }
+	
+	private synchronized boolean isDownloadComplete() {
+	    return downloadedPiecesBitfield.cardinality() == numberOfPieces;
+	}
 	
     private void initializeDataStructures() {
     	initializeBitfield();
@@ -279,10 +325,10 @@ public class TorrentClient implements PieceMessageCallback {
     }
     private void initializeBitfield() {
         this.numberOfPieces = torrent.getPieces().length / 20;
-        byte[] initialBitfieldData = new byte[(numberOfPieces + 7) / 8];  // Round up to the nearest byte
+        byte[] initialBitfieldData = new byte[(numberOfPieces + 7) / 8];
         downloadedPiecesBitfield = new Bitfield(initialBitfieldData);
         for (int i = 0; i < numberOfPieces; i++) {
-            if (isPieceDownloaded(i)) {
+            if (fileManager.isPieceDownloaded(i)) {
                 downloadedPiecesBitfield.setPiece(i);
             }
         }
@@ -310,41 +356,19 @@ public class TorrentClient implements PieceMessageCallback {
         for (int i = 0; i < numberOfPieces; i++) {
             PieceState pieceState = new PieceState(blocksPerPiece, i);
             if (downloadedPiecesBitfield.hasPiece(i)) {
-                pieceState.markComplete(); // Set as downloaded
+                pieceState.markComplete();
             }
             pieceStates.put(i, pieceState);
         }
     }
     
-    private boolean isPieceDownloaded(int pieceIndex) {
-        String pieceFileName = storagePath + File.separator + torrent.getName() + ".piece." + pieceIndex;
-        File pieceFile = new File(pieceFileName);
-        return pieceFile.exists();
-    }
-    
-    PieceState chooseRandomPiece(Client client) {
-        int piecesChecked = 0;
-        int queueSize = pieceQueue.size();
-
-        while (piecesChecked < queueSize && !pieceQueue.isEmpty()) {
-            PieceState piece = pieceQueue.poll(); // Remove and return the head
-            int pieceIndex = piece.getPieceIndex();
-            
-            piecesChecked++;
-
-            if (!piecesBeingDownloaded.contains(pieceIndex) && client.getBitfieldObject().hasPiece(pieceIndex)) {
-                piecesBeingDownloaded.add(pieceIndex);
-                logger.info("Polling piece nr {}", pieceIndex);
-                return piece;
-            } else {
-                pieceQueue.offer(piece);
-            }
+    private byte[] computeSHA1(byte[] data) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            return md.digest(data);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return null;
         }
-        return null;
     }
-	
-	private boolean isDownloadComplete() {
-	    return downloadedPiecesBitfield.cardinality() == numberOfPieces;
-	}
-	
 }

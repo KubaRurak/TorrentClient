@@ -155,8 +155,7 @@ public class Torrent {
     }
     
     public int getPieceSize(int pieceIndex) {
-        long numPieces = this.getPieces().length;
-
+        long numPieces = this.pieceHashes.length;
         if (pieceIndex == numPieces - 1) {
             int remainingData = (int) (this.getLength() % this.getPieceLength());
             return (remainingData > 0) ? remainingData : (int) this.getPieceLength();
@@ -164,9 +163,7 @@ public class Torrent {
             return (int) this.getPieceLength();
         }
     }
-    
-    
-    
+
     @Override
     public String toString() {
         return "Torrent{" +
@@ -180,7 +177,6 @@ public class Torrent {
                 ", pieces=" + Arrays.toString(pieces) +
                 ", isPrivate=" + isPrivate + "\n" +
                 ", infoHash Length=" + infoHash.length +
-
 //                ", infoHash=" + Arrays.toString(infoHash) +
 //                ", pieceHashes=" + Arrays.deepToString(pieceHashes) +
                 '}';
