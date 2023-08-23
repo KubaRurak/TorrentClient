@@ -32,4 +32,13 @@ public class Bitfield {
         return bitset;
     }
     
+    public byte[] toByteArray() {
+        byte[] bytes = new byte[(bits.length() + 7) / 8];
+        for (int i = 0; i < bits.length(); i++) {
+            if (bits.get(i)) {
+                bytes[bytes.length - i / 8 - 1] |= 1 << (i % 8);
+            }
+        }
+        return bytes;
+    }
 }

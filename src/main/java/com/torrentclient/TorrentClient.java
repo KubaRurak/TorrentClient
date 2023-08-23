@@ -23,6 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,10 +35,14 @@ public class TorrentClient implements PieceMessageCallback {
 	
     private ExecutorService connectionThreadPool;
     private final int maxBlockSize = 16384;
-    private int downloaded;
-    private int piecesLeft;
+    private int numberOfPieces;
+    private long bytesDownloaded = 0;
+    private long previousDownloaded = 0;
+
+    private long startTime;
+    private ScheduledExecutorService speedLogger;
     private Torrent torrent;
-	private String storagePath = "torrentfile" + File.separator + "downloads";
+    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads";
 	private int blocksPerPiece;
 	private ConcurrentHashMap<Integer,PieceState> pieceStates;
     private Bitfield downloadedPiecesBitfield;
@@ -54,10 +60,27 @@ public class TorrentClient implements PieceMessageCallback {
 
         // Start downloading pieces
         List<Peer> peerList = getPeerList();
+        startSpeedLogger();
         startDownloading(peerList);
 
         // Clean up resources
         connectionThreadPool.shutdown();
+        try {
+            connectionThreadPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            logger.error("Download threads interrupted", e);
+        }
+
+        // Check if the download is complete
+        if (isDownloadComplete()) {
+            try {
+				mergeFiles();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+        } else {
+            logger.error("Download was not completed successfully");
+        }
 	}
     private Torrent initializeTorrent() {
         String filePath = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
@@ -68,6 +91,50 @@ public class TorrentClient implements PieceMessageCallback {
             e.printStackTrace();
             throw new RuntimeException("Failed to initialize Torrent.");
         }
+    }
+    
+    private void startSpeedLogger() {
+        this.startTime = System.currentTimeMillis();
+        this.speedLogger = Executors.newSingleThreadScheduledExecutor();
+
+        // Schedule to log download speed every second
+        this.speedLogger.scheduleAtFixedRate(() -> {
+            logDownloadStatus();
+        }, 1, 10, TimeUnit.SECONDS);
+    }
+    
+    private void logDownloadStatus() {
+    	logDownloadSpeed();
+    	logPiecesProgress();
+    }
+    
+    private void logDownloadSpeed() {
+        long currentTime = System.currentTimeMillis();
+        long timeElapsed = currentTime - startTime;  // time in milliseconds
+
+        long bytesDownloadedInterval = bytesDownloaded - previousDownloaded;  // bytes downloaded during this interval
+        double speed = bytesDownloadedInterval / (timeElapsed / 1000.0);  // bytes per second
+        double speedInKBps = speed / 1024;  // Convert to KB per second
+
+        logger.info("Download speed: " + String.format("%.2f", speedInKBps) + " KB/s");
+
+        // Update for the next calculation
+        this.previousDownloaded = bytesDownloaded;
+        this.startTime = currentTime;
+    }
+    
+    private void logPiecesProgress() {
+        int totalPieces = numberOfPieces; // Assuming you have this value set already
+        int downloaded = downloadedPiecesBitfield.cardinality();
+        int remaining = totalPieces - downloaded;
+        double progress = ((double) downloaded / totalPieces) * 100;
+
+        logger.info(String.format("Pieces downloaded: %d/%d. Remaining: %d. Progress: %.2f%%", 
+            downloaded, totalPieces, remaining, progress));
+    }
+    
+    public synchronized void addBytesDownloaded(long bytes) {
+        this.bytesDownloaded += bytes;
     }
 
     private void setupConnectionThreadPool() {
@@ -130,6 +197,8 @@ public class TorrentClient implements PieceMessageCallback {
             
             handleIncomingMessages(client);
         }
+        logger.info("Thread for client " + client + " is finishing execution.");
+
     }
     
     void populateWorkQueue(Client client, int pieceIndex, int pieceSize) {
@@ -161,7 +230,7 @@ public class TorrentClient implements PieceMessageCallback {
             Message message = client.receiveAndParseMessage();
             client.handleMessage(message);
         } catch (SocketTimeoutException e) {
-            logger.warn("Timed out in handleIncomingMessage");
+            logger.info("Timed out in handleIncomingMessage");
         } catch (Exception e) {
             logger.error("An error occurred while handling incoming messages", e);
             client.closeConnection();
@@ -215,7 +284,8 @@ public class TorrentClient implements PieceMessageCallback {
         if (verifyPieceIntegrity(pieceData,pieceIndex)) {
         	logger.info("piece is verified!");
             savePieceToDisk(pieceIndex, pieceData, torrent.getName());
-//           SET BITFIELD FOR MYSELF
+            addBytesDownloaded(torrent.getPieceLength());
+            downloadedPiecesBitfield.setPiece(pieceIndex);
             client.pieceBuffers.remove(pieceIndex);
             piecesBeingDownloaded.remove(pieceIndex);
         } else {
@@ -248,7 +318,7 @@ public class TorrentClient implements PieceMessageCallback {
     private void savePieceToDisk(int pieceIndex, byte[] pieceData, String torrentName) {
         String fragmentFileName = storagePath + File.separator + torrentName + ".piece." + pieceIndex;
         logger.info("Attempting to save Piece {} to disk with name {}",pieceIndex,fragmentFileName);
-        
+        logger.info("Saving piece {}",pieceIndex);        
         // Ensure directories exist
         File file = new File(fragmentFileName);
         File parentDir = file.getParentFile();
@@ -269,10 +339,19 @@ public class TorrentClient implements PieceMessageCallback {
     	initializePiecesBeingDownloadedSet();
     	initializePieceStatesMap();
     }
+    private void initializeBitfield() {
+        this.numberOfPieces = torrent.getPieces().length / 20;
+        byte[] initialBitfieldData = new byte[(numberOfPieces + 7) / 8];  // Round up to the nearest byte
+        downloadedPiecesBitfield = new Bitfield(initialBitfieldData);
+        for (int i = 0; i < numberOfPieces; i++) {
+            if (isPieceDownloaded(i)) {
+                downloadedPiecesBitfield.setPiece(i);
+            }
+        }
+    }
     
     private void initializePieceQueue() {
     	pieceQueue = new ConcurrentLinkedQueue<>();
-        int numberOfPieces = torrent.getPieces().length / 20;
         this.blocksPerPiece = (int) torrent.getPieceLength() / maxBlockSize;
         List<PieceState> pieceList = new ArrayList<>();
         for (int i = 0; i < numberOfPieces; i++) {
@@ -284,30 +363,18 @@ public class TorrentClient implements PieceMessageCallback {
         pieceQueue.addAll(pieceList); // Add all the shuffled pieces to the queue
     }
     
+    private void initializePiecesBeingDownloadedSet() {
+    	piecesBeingDownloaded = ConcurrentHashMap.newKeySet();
+    }
+    
     private void initializePieceStatesMap() {
         pieceStates = new ConcurrentHashMap<>();
-        int numberOfPieces = torrent.getPieces().length / 20;
         for (int i = 0; i < numberOfPieces; i++) {
             PieceState pieceState = new PieceState(blocksPerPiece, i);
             if (downloadedPiecesBitfield.hasPiece(i)) {
                 pieceState.markComplete(); // Set as downloaded
             }
             pieceStates.put(i, pieceState);
-        }
-    }
-    
-    private void initializePiecesBeingDownloadedSet() {
-    	piecesBeingDownloaded = ConcurrentHashMap.newKeySet();
-    }
-    
-    private void initializeBitfield() {
-        int numberOfPieces = torrent.getPieces().length / 20;
-        byte[] initialBitfieldData = new byte[(numberOfPieces + 7) / 8];  // Round up to the nearest byte
-        downloadedPiecesBitfield = new Bitfield(initialBitfieldData);
-        for (int i = 0; i < numberOfPieces; i++) {
-            if (isPieceDownloaded(i)) {
-                downloadedPiecesBitfield.setPiece(i);
-            }
         }
     }
     
@@ -324,10 +391,12 @@ public class TorrentClient implements PieceMessageCallback {
         while (piecesChecked < queueSize && !pieceQueue.isEmpty()) {
             PieceState piece = pieceQueue.poll(); // Remove and return the head
             int pieceIndex = piece.getPieceIndex();
+            
             piecesChecked++;
 
             if (!piecesBeingDownloaded.contains(pieceIndex) && client.getBitfieldObject().hasPiece(pieceIndex)) {
                 piecesBeingDownloaded.add(pieceIndex);
+                logger.info("Polling piece nr {}", pieceIndex);
                 return piece;
             } else {
                 pieceQueue.offer(piece); // Put the piece back at the end of the queue
@@ -399,6 +468,27 @@ public class TorrentClient implements PieceMessageCallback {
 	    return response;
 	}
 	
+	private boolean isDownloadComplete() {
+	    return downloadedPiecesBitfield.cardinality() == numberOfPieces;
+	}
+	
+	private void mergeFiles() throws IOException {
+	    String outputFile = torrent.getName();
+	    
+	    // Merge process
+	    try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+	        for (int i = 0; i < numberOfPieces; i++) {
+	            File pieceFile = new File(storagePath + File.separator + "piece." + i);
+	            Files.copy(pieceFile.toPath(), fos);
+	        }
+	    }
+
+	    // If merging is successful, delete the pieces in a second iteration
+	    for (int i = 0; i < numberOfPieces; i++) {
+	        File pieceFile = new File(storagePath + File.separator + "piece." + i);
+	        Files.deleteIfExists(pieceFile.toPath());
+	    }
+	}
 	
 	
 }

@@ -72,22 +72,22 @@ public class Client {
 	        
 	        if (performHandshake()) {
 	            if (receiveBitfield()) {
-	            	sendBitfieldMessage();
+//	            	sendBitfieldMessage();
 	                clientSetSuccessfully = true;
 	            }
 	        }
 	        
 	    } catch (SocketTimeoutException e) {
-	        logger.warn("Socket timeout occurred during communication in setClient");
+	        logger.info("Socket timeout occurred during communication in setClient");
 	    } catch (IOException e) {
-	        logger.warn("Some IO exception in setClient");
+	        logger.info("Some IO exception in setClient");
 	    } catch (Exception e) {
-	        logger.warn("Some other exception in setClient");
+	        logger.info("Some other exception in setClient");
 	    } finally {
 	        try {
 	            socket.setSoTimeout(90000);
 	        } catch (SocketException e) {
-	            logger.warn("Error adjusting socket timeout in the finally block in setClient");
+	            logger.info("Error adjusting socket timeout in the finally block in setClient");
 	        }
 	    }
 	    
@@ -115,7 +115,7 @@ public class Client {
 	private boolean receiveBitfield() {
 	    try {
 	        while (handshakeCompleted) {
-	            logger.debug("Trying to receive message");
+	            logger.info("Trying to receive message");
 	            byte[] messageResponse = receiveMessage();
 	            
 	            if (messageResponse != null) {
@@ -197,7 +197,7 @@ public class Client {
 	public byte[] receiveMessage() throws IOException {
 		
 		socket.setSoTimeout(150000);
-		logger.debug("Trying to receive message");
+		logger.info("Trying to receive message");
 	    InputStream inputStream = socket.getInputStream();
 
 	    byte[] lengthBuffer = new byte[4];
@@ -214,7 +214,6 @@ public class Client {
 	    }
 
 	    int length = ByteBuffer.wrap(lengthBuffer).order(ByteOrder.BIG_ENDIAN).getInt();
-	    System.out.println("Message length is: " + length);
 
 	    if (length == 0) {
 	        logger.info("Received a keep-alive message with 0 length.");
@@ -276,14 +275,14 @@ public class Client {
 		OutputStream outputStream = socket.getOutputStream();
 		byte[] messageBytes = message.serialize();
 		outputStream.write(messageBytes);
-		System.out.println(bytesToHex(messageBytes));
+		logger.info(bytesToHex(messageBytes));
 		outputStream.flush();
 	}
 	
 	private void sendMessage(byte[] messageBytes) throws IOException {
 		OutputStream outputStream = socket.getOutputStream();
 		outputStream.write(messageBytes);
-		System.out.println(bytesToHex(messageBytes));
+		logger.info(bytesToHex(messageBytes));
 		outputStream.flush();
 	}
 	
