@@ -77,37 +77,8 @@ public class Message {
         buf.position(begin);
         buf.put(data);
 
-        // Calculate blockIndex from begin offset
         return new PieceMessageInfo(parsedPieceIndex, begin, data.length);
     }
-//    public static int parsePieceMessage(int index, ByteBuffer buf, Message message) throws Exception {
-//        if (message.getType() != MessageType.PIECE) {
-//            throw new Exception("Expected MessageType.PIECE, got" + message.getType());
-//        }
-//
-//        if (message.getPayload().length < 8) {
-//            throw new Exception("Payload too short. %d < 8" + message.getPayload().length);
-//        }
-//
-//        int parsedIndex = ByteBuffer.wrap(message.getPayload(), 0, 4).getInt();
-//        if (parsedIndex != index) {
-//            throw new Exception(String.format("Expected index %d, got %d", index, parsedIndex));
-//        }
-//        int begin = ByteBuffer.wrap(message.getPayload(), 4, 4).getInt();
-//        if (begin >= buf.capacity()) {
-//            throw new Exception(String.format("Begin offset too high. %d >= %d", begin, buf.capacity()));
-//        }
-//
-//        byte[] data = Arrays.copyOfRange(message.getPayload(), 8, message.getPayload().length);
-//        if (begin + data.length > buf.capacity()) {
-//            throw new Exception(String.format("Data too long [%d] for offset %d with capacity %d", data.length, begin, buf.capacity()));
-//        }
-//
-//        buf.position(begin);
-//        buf.put(data);
-//        return data.length;
-//    }
-//    
     public static int getBeginOffsetFromMessage(Message message) throws Exception {
         if (message.getPayload().length < 8) {
             throw new Exception("Payload too short. %d < 8" + message.getPayload().length);
