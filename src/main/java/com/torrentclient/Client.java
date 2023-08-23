@@ -72,26 +72,27 @@ public class Client {
 	        
 	        if (performHandshake()) {
 	            if (receiveBitfield()) {
-//	            	sendBitfieldMessage();
 	                clientSetSuccessfully = true;
 	            }
 	        }
 	        
 	    } catch (SocketTimeoutException e) {
-	        logger.info("Socket timeout occurred during communication in setClient");
+	        logger.info("Socket timeout occurred during communication in initializeConnection");
 	    } catch (IOException e) {
-	        logger.info("Some IO exception in setClient");
-	    } catch (Exception e) {
-	        logger.info("Some other exception in setClient");
+	        logger.error("IO exception in initializeConnection", e);
 	    } finally {
-	        try {
-	            socket.setSoTimeout(90000);
-	        } catch (SocketException e) {
-	            logger.info("Error adjusting socket timeout in the finally block in setClient");
-	        }
+	        adjustSocketTimeout(90000);
 	    }
 	    
 	    return clientSetSuccessfully;
+	}
+
+	private void adjustSocketTimeout(int timeout) {
+	    try {
+	        socket.setSoTimeout(timeout);
+	    } catch (SocketException e) {
+	        logger.error("Error adjusting socket timeout", e);
+	    }
 	}
 
 	private boolean performHandshake() throws IOException {
@@ -295,7 +296,7 @@ public class Client {
 	}
 	
 
-	public void handleMessage(Message message) throws Exception {
+	public void handleMessage(Message message) throws IOException, WrongMessageTypeException, WrongPayloadLengthException  {
 		
 		switch (message.getType()) {
 		case KEEP_ALIVE:

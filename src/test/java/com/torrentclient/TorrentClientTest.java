@@ -81,7 +81,7 @@ public class TorrentClientTest {
         public void testGetPieceSize_forLastPiece() {
             int pieceIndex = 10; // last piece (0-based index)
 
-            int size = clientUnderTest.getPieceSize(pieceIndex);
+            int size = torrent.getPieceSize(pieceIndex);
 
             assertEquals(pieceLength / 2, size); // The last piece is half the size of the others
         }
@@ -90,7 +90,7 @@ public class TorrentClientTest {
         public void testGetPieceSize_forRegularPiece() {
             int pieceIndex = 5; // some middle piece
 
-            int size = clientUnderTest.getPieceSize(pieceIndex);
+            int size = torrent.getPieceSize(pieceIndex);
 
             assertEquals(pieceLength, size); // Regular pieces should have the default piece size
         }

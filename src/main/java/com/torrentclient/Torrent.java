@@ -1,16 +1,23 @@
 package com.torrentclient;
 
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -34,6 +41,8 @@ public class Torrent {
     private boolean isPrivate;
     private byte[] infoHash;
     private String peerId;
+    private static final Logger logger = LoggerFactory.getLogger(Torrent.class);
+
 
     public Torrent(BencodeObject bencode) {
         this.announce = bencode.getString("announce");
@@ -50,6 +59,21 @@ public class Torrent {
         this.infoHash = calculateInfoHash(bytesInfo);
         this.pieceHashes = splitPiecesIntoHashes(pieces);
         this.peerId = generatePeerId();
+    }
+    
+    public static Torrent fromFile(String filePath) {
+        try {
+            BencodeObject bencode = loadFromFile(filePath);
+            return new Torrent(bencode);
+        } catch (Exception e) {
+            logger.error("Failed to load torrent from file: " + filePath, e);
+            return null;
+        }
+    }
+
+    private static BencodeObject loadFromFile(String filePath) throws IOException {
+        byte[] torrentData = Files.readAllBytes(Paths.get(filePath));
+        return new BencodeObject(torrentData);
     }
     
     private String generatePeerId() {
@@ -128,6 +152,17 @@ public class Torrent {
     
     public byte[] getPeerIdBytes() {
     	return this.peerId.getBytes();
+    }
+    
+    public int getPieceSize(int pieceIndex) {
+        long numPieces = this.getPieces().length;
+
+        if (pieceIndex == numPieces - 1) {
+            int remainingData = (int) (this.getLength() % this.getPieceLength());
+            return (remainingData > 0) ? remainingData : (int) this.getPieceLength();
+        } else {
+            return (int) this.getPieceLength();
+        }
     }
     
     
