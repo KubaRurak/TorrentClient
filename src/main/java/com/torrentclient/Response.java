@@ -11,7 +11,7 @@ public class Response {
         if (isHandshake) {
             this.handshake = Handshake.fromBytes(responseBytes);
         } else {
-            this.message = Message.readMessage(responseBytes);
+            this.message = Message.createMessageObject(responseBytes);
         }
     }
 

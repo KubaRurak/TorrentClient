@@ -28,27 +28,17 @@ public class Message {
     }
     
     
-    public static Message readMessage(byte[] messageBytes) {
-        System.out.println("messageBytes array contents: " + Arrays.toString(messageBytes));
-        System.out.println("Received messageBytes length: " + messageBytes.length);
-        if (messageBytes.length == 0) {
+    public static Message createMessageObject(byte[] messageBytes) {
+        if (messageBytes == null) {
             return new Message(MessageType.KEEP_ALIVE, new byte[0]);
         }
         byte typeByte = messageBytes[0];
-        // Check for Keep-Alive message
-        if (typeByte == -1) {
-            return new Message(MessageType.KEEP_ALIVE, new byte[0]);
-        }
         MessageType type = MessageType.fromValue((int) typeByte);
-        System.out.println("MessageType is: " + type.toString());
-        byte[] payload = new byte[messageBytes.length - 1];
-        if (messageBytes.length > 1) {
-            System.arraycopy(messageBytes, 1, payload, 0, payload.length);
-        }
-
+        
+        byte[] payload = Arrays.copyOfRange(messageBytes, 1, messageBytes.length);
         return new Message(type, payload);
     }
-    
+//    
     public static int parseHaveMessage(Message message) throws WrongMessageTypeException, WrongPayloadLengthException {
     	if (message.getType()!=MessageType.HAVE) {
             throw new WrongMessageTypeException("Expected message type HAVE.");
@@ -60,8 +50,7 @@ public class Message {
     	int index =  ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN).getInt();
     	return index;
     }
-    
-    public static int parsePieceMessage(int index, byte[] buf, Message message) throws Exception {
+    public static PieceMessageInfo parsePieceMessage(int expectedPieceIndex, ByteBuffer buf, Message message) throws Exception {
         if (message.getType() != MessageType.PIECE) {
             throw new Exception("Expected MessageType.PIECE, got" + message.getType());
         }
@@ -70,22 +59,62 @@ public class Message {
             throw new Exception("Payload too short. %d < 8" + message.getPayload().length);
         }
 
-        int parsedIndex = ByteBuffer.wrap(message.getPayload(), 0, 4).getInt();
-        if (parsedIndex!=index) {
-        	throw new Exception(String.format("Expected index %d, got %d", index, parsedIndex));
+        int parsedPieceIndex = ByteBuffer.wrap(message.getPayload(), 0, 4).getInt();
+        if (parsedPieceIndex != expectedPieceIndex) {
+            throw new Exception(String.format("Expected index %d, got %d", expectedPieceIndex, parsedPieceIndex));
         }
+        
         int begin = ByteBuffer.wrap(message.getPayload(), 4, 4).getInt();
-        if (begin >= buf.length) {
-            throw new Exception(String.format("Begin offset too high. %d >= %d", begin, buf.length));
+        if (begin >= buf.capacity()) {
+            throw new Exception(String.format("Begin offset too high. %d >= %d", begin, buf.capacity()));
         }
 
         byte[] data = Arrays.copyOfRange(message.getPayload(), 8, message.getPayload().length);
-        if (begin + data.length > buf.length) {
-            throw new Exception(String.format("Data too long [%d] for offset %d with length %d", data.length, begin, buf.length));
+        if (begin + data.length > buf.capacity()) {
+            throw new Exception(String.format("Data too long [%d] for offset %d with capacity %d", data.length, begin, buf.capacity()));
         }
 
-        System.arraycopy(data, 0, buf, begin, data.length);
-        return data.length;
+        buf.position(begin);
+        buf.put(data);
+
+        // Calculate blockIndex from begin offset
+        return new PieceMessageInfo(parsedPieceIndex, begin, data.length);
+    }
+//    public static int parsePieceMessage(int index, ByteBuffer buf, Message message) throws Exception {
+//        if (message.getType() != MessageType.PIECE) {
+//            throw new Exception("Expected MessageType.PIECE, got" + message.getType());
+//        }
+//
+//        if (message.getPayload().length < 8) {
+//            throw new Exception("Payload too short. %d < 8" + message.getPayload().length);
+//        }
+//
+//        int parsedIndex = ByteBuffer.wrap(message.getPayload(), 0, 4).getInt();
+//        if (parsedIndex != index) {
+//            throw new Exception(String.format("Expected index %d, got %d", index, parsedIndex));
+//        }
+//        int begin = ByteBuffer.wrap(message.getPayload(), 4, 4).getInt();
+//        if (begin >= buf.capacity()) {
+//            throw new Exception(String.format("Begin offset too high. %d >= %d", begin, buf.capacity()));
+//        }
+//
+//        byte[] data = Arrays.copyOfRange(message.getPayload(), 8, message.getPayload().length);
+//        if (begin + data.length > buf.capacity()) {
+//            throw new Exception(String.format("Data too long [%d] for offset %d with capacity %d", data.length, begin, buf.capacity()));
+//        }
+//
+//        buf.position(begin);
+//        buf.put(data);
+//        return data.length;
+//    }
+//    
+    public static int getBeginOffsetFromMessage(Message message) throws Exception {
+        if (message.getPayload().length < 8) {
+            throw new Exception("Payload too short. %d < 8" + message.getPayload().length);
+        }
+
+        int begin = ByteBuffer.wrap(message.getPayload(), 4, 4).getInt();
+        return begin;
     }
     
     
@@ -125,12 +154,24 @@ public class Message {
     }
     
     public byte[] serialize() {
-        int length = payload.length + 1;
-        ByteBuffer buffer = ByteBuffer.allocate(4 + 1 + length);
+        int length = payload.length+1;
+        ByteBuffer buffer = ByteBuffer.allocate(4 + length);
         buffer.putInt(length); // Length of the message
         buffer.put((byte) type.getValue()); // Message type
         buffer.put(payload); // Message payload
-        return buffer.array();
+        byte[] buffArr = buffer.array();
+        return buffArr;
     }
 
+	public static int getPieceIndexFromMessage(Message message) {
+        if (message.getType() != MessageType.PIECE) {
+            throw new IllegalArgumentException("Expected MessageType.PIECE, got " + message.getType());
+        }
+
+        if (message.getPayload().length < 8) {
+            throw new IllegalArgumentException("Payload too short. " + message.getPayload().length + " < 8");
+        }
+        return ByteBuffer.wrap(message.getPayload(), 0, 4).getInt();
+	}
+	
 }
