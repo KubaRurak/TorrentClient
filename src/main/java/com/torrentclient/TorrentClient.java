@@ -9,6 +9,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
@@ -18,6 +19,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,21 +27,25 @@ import org.slf4j.LoggerFactory;
 import com.torrentclient.exceptions.WrongMessageTypeException;
 import com.torrentclient.exceptions.WrongPayloadLengthException;
 
-public class TorrentClient implements PieceMessageCallback {
+public class TorrentClient implements PieceMessageCallback, ClientExceptionCallback {
 	
     private ExecutorService connectionThreadPool;
+    private PeriodicChecker periodicChecker;
+    private final ReentrantLock finalizeLock = new ReentrantLock();
     private static final int maxBlockSize = 16384;
     private int numberOfPieces;
-    private String path = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
+    private String path = "torrentfile/debian-edu-12.1.0-amd64-netinst.iso.torrent";
     private SpeedLogger speedLogger;
     private Torrent torrent;
     private FileManager fileManager;
-    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads";
+    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads" + File.separator + "backup";
 	private int blocksPerPiece;
 	private ConcurrentHashMap<Integer,PieceState> pieceStates;
     private Bitfield downloadedPiecesBitfield;
     private Queue<PieceState> pieceQueue;
     private Set<Integer> piecesBeingDownloaded;
+    private final List<Client> activeClients = Collections.synchronizedList(new ArrayList<>());
+
 	
     private static final Logger logger = LoggerFactory.getLogger(TorrentClient.class);
 
@@ -55,11 +61,11 @@ public class TorrentClient implements PieceMessageCallback {
         setupConnectionThreadPool();
         fileManager = new FileManager(storagePath, torrent.getName());
         initializeDataStructures();
-        if (isDownloadComplete()) {
-        	finalizeDownload();
-        }
         speedLogger = new SpeedLogger(numberOfPieces, downloadedPiecesBitfield);
         speedLogger.start();
+	    periodicChecker = new PeriodicChecker(activeClients, pieceQueue,
+			downloadedPiecesBitfield, this::isDownloadComplete, blocksPerPiece);
+	    periodicChecker.start();
     }
 
     private void process() {
@@ -68,29 +74,51 @@ public class TorrentClient implements PieceMessageCallback {
     }
 
     private void cleanup() {
-    	logger.debug("Shutting down connections");
+        logger.debug("Shutting down connections");
+        disconnectActiveClients();  // Disconnect all active clients
         connectionThreadPool.shutdown();
+        logger.info("After connection ThreadPoll shutdown");
+//        try {
+//			if (!connectionThreadPool.awaitTermination(60, TimeUnit.SECONDS)) {  // wait for 60 seconds
+//			    connectionThreadPool.shutdownNow();
+//			}
+//		} catch (InterruptedException e) {
+//			e.printStackTrace();
+//		}
         try {
             connectionThreadPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+            logger.info("Terminating threads");
         } catch (InterruptedException e) {
             logger.error("Download threads interrupted", e);
         }
-        
+        logger.info("threads terminated");
+        speedLogger.stop();
+        periodicChecker.stop();
+        System.exit(0);
     }
 
     private void finalizeDownload() {
-        if (isDownloadComplete()) {
-            fileManager.mergeFiles(numberOfPieces, torrent.getLength());
+        if (!finalizeLock.tryLock()) {
+            return;
+        }
+        try {
+            if (!isDownloadComplete()) {
+                logger.debug("Download was not completed successfully");
+                return;
+            }
+            if (!fileManager.isFileMerged()) {
+                fileManager.mergeFiles(numberOfPieces, torrent.getLength());
+            }
+            
+        } finally {
+            finalizeLock.unlock();
             cleanup();
-            System.exit(0);
-        } else {
-            logger.error("Download was not completed successfully");
         }
     }
 
 
     private void setupConnectionThreadPool() {
-        int numThreads = 1; // Adjust the number of threads as needed
+        int numThreads = 6; // Adjust the number of threads as needed
         connectionThreadPool = Executors.newFixedThreadPool(numThreads);
     }
 
@@ -100,16 +128,47 @@ public class TorrentClient implements PieceMessageCallback {
     }
 
     private void startDownloading(List<Peer> peerList) {
-        Handshake handshake = new Handshake(torrent.getInfoHash(), torrent.getPeerIdBytes());
-        for (Peer peer : peerList) {
-            connectionThreadPool.submit(() -> {
-                Client client = new Client(torrent, peer, handshake, this);
-                if (client.initializeConnection()) {
-                    attemptDownloadPiece(client);
-                }
-            });
-        }
+    	Handshake handshake = new Handshake(torrent.getInfoHash(), torrent.getPeerIdBytes());
+    	for (Peer peer : peerList) {
+    		connectionThreadPool.submit(() -> {
+    			if (isDownloadComplete()) return;
+    			Client client = new Client(torrent, peer, handshake, this, this);
+    			logger.info("new client");
+    			if (client.initializeConnection()) {
+    				activeClients.add(client);
+    				attemptDownloadPiece(client);
+    				activeClients.remove(client);
+    			}
+    		});
+    	}
     }
+    
+//    private void startDownloading(List<Peer> peerList) {
+//        Handshake handshake = new Handshake(torrent.getInfoHash(), torrent.getPeerIdBytes());
+//        for (Peer peer : peerList) {
+//            connectionThreadPool.submit(() -> {
+//                if (isDownloadComplete() || forceShutdown) return;
+//                Client client = new Client(torrent, peer, handshake, this, this);
+//                logger.info("new client");
+//                if (client.initializeConnection()) {
+//                    activeClients.add(client);
+//                    attemptDownloadPiece(client);
+//                    activeClients.remove(client);
+//                }
+//                
+//                // Wait for the merge completion or forced shutdown
+//                synchronized (mergeNotification) {
+//                    try {
+//                        while (!forceShutdown) {
+//                            mergeNotification.wait(1000);  // Check every second
+//                        }
+//                    } catch (InterruptedException e) {
+//                        Thread.currentThread().interrupt();
+//                    }
+//                }
+//            });
+//        }
+//    }
 
     private void attemptDownloadPiece(Client client) {
         try {
@@ -154,7 +213,7 @@ public class TorrentClient implements PieceMessageCallback {
             }
             handleIncomingMessages(client);
         }
-        logger.debug("Exiting processPiece for client" + client);
+        logger.info("Exiting processPiece for client" + client);
     }
     
     
@@ -199,16 +258,11 @@ public class TorrentClient implements PieceMessageCallback {
             Message message = client.receiveAndParseMessage();
             client.handleMessage(message);
         } catch (SocketTimeoutException e) {
-            logger.error("Timed out in handleIncomingMessage");
+            logger.error("Client timed out");
+            client.closeConnection();
         } catch (IOException e) {
             logger.error("An error occurred while handling incoming messages", e);
             client.closeConnection();
-        } catch (WrongMessageTypeException e) {
-            logger.error("Received an invalid message type", e);
-            // client.closeConnection();
-        } catch (WrongPayloadLengthException e) {
-            logger.error("Received a message with incorrect payload length", e);
-            // client.closeConnection();
         }
     }
 
@@ -272,7 +326,8 @@ public class TorrentClient implements PieceMessageCallback {
 
     private void handleCorruptPiece(ByteBuffer buf, int pieceIndex) {
         buf.clear();
-        pieceQueue.offer(new PieceState(blocksPerPiece, pieceIndex)); // Ensure you create a new PieceState appropriately
+        pieceQueue.offer(new PieceState(blocksPerPiece, pieceIndex));
+        piecesBeingDownloaded.remove(pieceIndex);
     }
 
 
@@ -284,7 +339,9 @@ public class TorrentClient implements PieceMessageCallback {
     
     
     private boolean shouldDownloadPiece(Client client, int pieceIndex) {
-        return !piecesBeingDownloaded.contains(pieceIndex) && client.getBitfieldObject().hasPiece(pieceIndex);
+        return client.getBitfieldObject().hasPiece(pieceIndex);
+
+//        return (!piecesBeingDownloaded.contains(pieceIndex)) && client.getBitfieldObject().hasPiece(pieceIndex);
     }
     
     private boolean needsMoreBlocks(Client client) {
@@ -370,5 +427,49 @@ public class TorrentClient implements PieceMessageCallback {
             e.printStackTrace();
             return null;
         }
+    }
+
+    @Override
+    public void onException(Client client, Exception e) {
+        if (e instanceof SocketTimeoutException) {
+            logger.error("Socket Timeout Exception");
+            onConnectionClosed(client);
+        } else if (e instanceof IOException) {
+            logger.error("IO exception", e);
+            onConnectionClosed(client);
+            client.closeConnection();
+        } else if (e instanceof WrongMessageTypeException) {
+            logger.error("Received an invalid message type", e);
+        } else if (e instanceof WrongPayloadLengthException) {
+            logger.error("Received a message with incorrect payload length", e);
+        }
+    }
+    
+    public void onConnectionClosed(Client client) {
+        logger.warn("Connection closed for client " + client);
+        Set<Integer> distinctPieceIndexes = new HashSet<>();
+        while (!client.workQueue.isEmpty()) {
+            BlockRequest request = client.workQueue.poll();
+            distinctPieceIndexes.add(request.getPieceIndex());
+        }
+        for (Integer pieceIndex : distinctPieceIndexes) {
+            pieceQueue.offer(new PieceState(blocksPerPiece, pieceIndex));
+            piecesBeingDownloaded.remove(pieceIndex);
+        }
+    }
+    
+    private void disconnectActiveClients() {
+        logger.debug("Disconnecting all active clients...");
+        synchronized (activeClients) {
+            for (Client client : activeClients) {
+                try {
+                    client.closeConnection();
+                } catch (Exception e) {
+                    logger.error("Error disconnecting client: " + client.toString(), e);
+                }
+            }
+            activeClients.clear();  // Clear the list once all clients are disconnected.
+        }
+        logger.debug("All active clients disconnected.");
     }
 }

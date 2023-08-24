@@ -25,17 +25,15 @@ public class SpeedLogger {
     public void start() {
         this.startTime = System.currentTimeMillis();
         this.speedLoggerScheduler = Executors.newSingleThreadScheduledExecutor();
-
         this.speedLoggerScheduler.scheduleAtFixedRate(() -> {
-            logDownloadStatus();
-        }, 1, 10, TimeUnit.SECONDS);
+            try {
+                logDownloadStatus();
+            } catch (Exception e) {
+                logger.error("Error while logging download status", e);
+            }
+        }, 1, 5, TimeUnit.SECONDS);
     }
 
-    public void stop() {
-        if (speedLoggerScheduler != null) {
-            speedLoggerScheduler.shutdown();
-        }
-    }
 
     private void logDownloadStatus() {
         logDownloadSpeed();
@@ -69,6 +67,20 @@ public class SpeedLogger {
     
     public synchronized void addBytesDownloaded(long bytes) {
         this.bytesDownloaded += bytes;
+    }
+    
+    public void stop() {
+        if (speedLoggerScheduler != null) {
+            speedLoggerScheduler.shutdown();
+            try {
+                if (!speedLoggerScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    speedLoggerScheduler.shutdownNow();
+                }
+            } catch (InterruptedException ex) {
+                speedLoggerScheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
 }

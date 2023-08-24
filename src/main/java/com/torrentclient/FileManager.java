@@ -13,6 +13,7 @@ public class FileManager {
     private static final Logger logger = LoggerFactory.getLogger(FileManager.class);
     private final String storagePath;
     private final String torrentName; // Added field
+    private boolean isMerged;
 
     public FileManager(String storagePath, String torrentName) {
         this.storagePath = storagePath;
@@ -51,9 +52,10 @@ public class FileManager {
             return;  
         }
         File mergedFile = new File(outputFile);
-        long expectedSize = torrentLength;  
+        long expectedSize = torrentLength;
+        isMerged=true;
         if (mergedFile.length() == expectedSize) {
-        	logger.info("Merging success, downloading parts");
+        	logger.info("Merging success, deleting parts");
             for (int i = 0; i < numberOfPieces; i++) {
                 File pieceFile = new File(storagePath + File.separator + torrentName + ".piece." + i);
                 try {
@@ -71,5 +73,9 @@ public class FileManager {
         String pieceFileName = storagePath + File.separator + torrentName + ".piece." + pieceIndex;
         File pieceFile = new File(pieceFileName);
         return pieceFile.exists();
+    }
+    
+    public boolean isFileMerged() {
+    	return isMerged;
     }
 }

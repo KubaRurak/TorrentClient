@@ -1,6 +1,8 @@
 package com.torrentclient;
 
+import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.List;
 
 public class Bitfield {
     
@@ -40,5 +42,15 @@ public class Bitfield {
             }
         }
         return bytes;
+    }
+    
+    public List<Integer> getMissingPieces() {
+        List<Integer> missingPieces = new ArrayList<>();
+        for (int i = 0; i < bits.length(); i++) {
+            if (!bits.get(i)) {
+                missingPieces.add(i);
+            }
+        }
+        return missingPieces;
     }
 }

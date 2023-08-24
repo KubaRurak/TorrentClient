@@ -29,7 +29,8 @@ import lombok.Data;
 @Data
 public class Client {
 	
-    private final PieceMessageCallback callback;
+    private final PieceMessageCallback pieceMessageCallback;
+    private final ClientExceptionCallback clientExceptionCallback;
     
 	private Peer peer;
 	private Handshake handshake;
@@ -53,9 +54,10 @@ public class Client {
 
 
 
-	public Client(Torrent torrent, Peer peer, Handshake handshake, PieceMessageCallback callback) {
+	public Client(Torrent torrent, Peer peer, Handshake handshake, PieceMessageCallback pieceMessageCallback, ClientExceptionCallback clientExceptionCallback) {
 		this.torrent = torrent;
-		this.callback = callback;
+		this.pieceMessageCallback = pieceMessageCallback;
+		this.clientExceptionCallback = clientExceptionCallback;
 		this.peer = peer;
 		this.handshake=handshake;
         this.workQueue = new ConcurrentLinkedQueue<>(); 
@@ -79,9 +81,9 @@ public class Client {
 	    } catch (SocketTimeoutException e) {
 	        logger.debug("Socket timeout occurred during communication in initializeConnection");
 	    } catch (IOException e) {
-	        logger.error("IO exception in initializeConnection", e);
+	        logger.error("IO exception in initializeConnection", e);	
 	    } finally {
-	        adjustSocketTimeout(90000);
+	        adjustSocketTimeout(10000);
 	    }
 	    
 	    return clientSetSuccessfully;
@@ -91,7 +93,7 @@ public class Client {
 	    try {
 	        socket.setSoTimeout(timeout);
 	    } catch (SocketException e) {
-	        logger.error("Error adjusting socket timeout", e);
+	        logger.debug("Connection with peer closed");
 	    }
 	}
 
@@ -150,14 +152,6 @@ public class Client {
 		logger.debug("Connected to peer Ip: " + peerIP);
 	}
 
-	public void disconnect() {
-		try {
-			socket.close();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
 	private void sendHandshake() throws IOException {
 		OutputStream outputStream = socket.getOutputStream();
 		byte[] handshakeMessage = handshake.createHandshake();
@@ -197,7 +191,7 @@ public class Client {
 
 	public byte[] receiveMessage() throws IOException {
 		
-		socket.setSoTimeout(150000);
+//		socket.setSoTimeout(150000);
 		logger.debug("Trying to receive message");
 	    InputStream inputStream = socket.getInputStream();
 
@@ -269,9 +263,6 @@ public class Client {
 		
 	}
 
-
-
-
 	private void sendMessage(Message message) throws IOException {
 		OutputStream outputStream = socket.getOutputStream();
 		byte[] messageBytes = message.serialize();
@@ -296,37 +287,44 @@ public class Client {
 	}
 	
 
-	public void handleMessage(Message message) throws IOException, WrongMessageTypeException, WrongPayloadLengthException  {
+	public void handleMessage(Message message)  {
 		
-		switch (message.getType()) {
-		case KEEP_ALIVE:
-			socket.setSoTimeout(15000);
-			break;
-		case BITFIELD:
-			this.bitfield = message.getPayload();
-			break;
-		case CHOKE:
-			logger.debug("GOT CHOKE MESSAGE");
-			socket.setSoTimeout(3000);
-			this.isChoked=true;
-			sendUnchokeMessage();
-			break;
-		case UNCHOKE:
-			logger.debug("GOT UNCHOKED MESSAGE");
-			socket.setSoTimeout(150000);
-			this.isChoked=false;
-			break;
-		case PIECE:
-			logger.debug("GOT PIECE MESSAGE");
-			socket.setSoTimeout(150000);
-            callback.onPieceMessageReceived(message, this);
-            break;
-		case HAVE:
-			handleHaveMessage(message);
-			break;
-		default:
-			logger.debug("Got a message of type: " + message.getType());
-			break;
+		try {
+			switch (message.getType()) {
+			case KEEP_ALIVE:
+				socket.setSoTimeout(5000);
+				logger.info("Got keep alive");
+				break;
+			case BITFIELD:
+				this.bitfield = message.getPayload();
+				break;
+			case CHOKE:
+				logger.info("GOT CHOKE MESSAGE");
+				socket.setSoTimeout(5000);
+				this.isChoked=true;
+				sendUnchokeMessage();
+				break;
+			case UNCHOKE:
+				logger.info("GOT UNCHOKED MESSAGE");
+				socket.setSoTimeout(15000);
+				this.isChoked=false;
+				break;
+			case PIECE:
+//				logger.info("GOT PIECE MESSAGE");
+				socket.setSoTimeout(15000);
+			    pieceMessageCallback.onPieceMessageReceived(message, this);
+			    break;
+			case HAVE:
+				handleHaveMessage(message);
+				break;
+			default:
+				logger.info("Got a message of type: " + message.getType());
+				break;
+			}
+		} catch (IOException | WrongMessageTypeException | WrongPayloadLengthException e) {
+			// TODO Auto-generated catch block
+	        clientExceptionCallback.onException(this, e);
+
 		}
 	}
 
@@ -361,11 +359,21 @@ public class Client {
 
 	@Override
 	public String toString() {
-		return "Client [callback=" + callback + ", peer=" + peer +  ", infoHash="
-				+ Arrays.toString(infoHash) + ", peerId=" + Arrays.toString(peerId) + ", handshakeCompleted="
-				+ handshakeCompleted + ", isChoked=" + isChoked + ", bitfield=" + Arrays.toString(bitfield)
+		int socketTimeout = -1;
+		try {
+			socketTimeout = this.getSocket().getSoTimeout();
+		} catch (SocketException e) {
+			e.printStackTrace();
+		}
+		
+		return "Client [peer=" + peer + ", isChoked=" + isChoked + ", socket timeout="  + socketTimeout
 				+ ", clientSetSuccessfully=" + clientSetSuccessfully + ", socket=" + socket 
 				+ ", workQueue=" + workQueue + ", currentOutstandingRequests=" + currentOutstandingRequests
 				+ ", outstandingRequests=" + outstandingRequests + ", pieceBuffers=" + pieceBuffers.size() + "]";
 	}
+
+
+    public boolean isIdle() {
+        return (workQueue.isEmpty() && outstandingRequests.size() == 0) || isChoked;
+    }
 }
