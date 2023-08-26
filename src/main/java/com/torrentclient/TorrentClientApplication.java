@@ -38,9 +38,17 @@ public class TorrentClientApplication implements CommandLineRunner {
 		SpringApplication.run(TorrentClientApplication.class, args);
 	}
 	
-    @Override
-    public void run(String... args) {
-        TorrentClient torrentClient = new TorrentClient();
-        torrentClient.start();
-    }
+	@Override
+	public void run(String... args) {
+	    if(args.length < 2) {
+	        System.out.println("Usage: java -jar yourapp.jar <torrent-file-path> <save-path>");
+	        return;
+	    }
+
+	    String torrentFilePath = args[0];
+	    String savePath = args[1];
+
+	    TorrentClient torrentClient = new TorrentClient(torrentFilePath, savePath);
+	    torrentClient.start();
+	}
 }

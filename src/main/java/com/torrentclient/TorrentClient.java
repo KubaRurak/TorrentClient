@@ -37,9 +37,10 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     private int numberOfPieces;
 	private int blocksPerPiece;
 	
-    private String path = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
-    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads" + File.separator + "backup";
-    
+//    private String path = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
+//    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads" + File.separator + "backup";
+    private String path;
+    private String storagePath;
     private Torrent torrent;
     private FileManager fileManager;
 
@@ -49,10 +50,13 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     private Set<Integer> piecesBeingDownloaded;
     private final List<Client> activeClients = Collections.synchronizedList(new ArrayList<>());
     
-
-	
     private static final Logger logger = LoggerFactory.getLogger(TorrentClient.class);
-
+    
+    public TorrentClient(String torrentFilePath, String savePath) {
+        this.path = torrentFilePath;
+        this.storagePath = savePath;
+    }
+    
     public void start() {
         initialize();
         process();

@@ -40,7 +40,7 @@ public class FileManager {
 
     public void mergeFiles(int numberOfPieces, long torrentLength) {
         String outputFile = storagePath + File.separator + torrentName;
-        logger.info("Merging files");
+        System.out.println("Merging files");
         // Merge process
         try (FileOutputStream fos = new FileOutputStream(outputFile)) {
             for (int i = 0; i < numberOfPieces; i++) {
@@ -55,13 +55,13 @@ public class FileManager {
         long expectedSize = torrentLength;
         isMerged=true;
         if (mergedFile.length() == expectedSize) {
-        	logger.info("Merging success, deleting parts");
+        	System.out.println("Merging success, deleting parts");
             for (int i = 0; i < numberOfPieces; i++) {
                 File pieceFile = new File(storagePath + File.separator + torrentName + ".piece." + i);
                 try {
                     Files.deleteIfExists(pieceFile.toPath());
                 } catch (IOException e) {
-                    logger.warn("Failed to delete piece file: " + pieceFile.getName(), e);
+                	System.out.println("Failed to delete piece file: " + pieceFile.getName());
                 }
             }
         } else {
