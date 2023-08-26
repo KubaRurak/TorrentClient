@@ -13,7 +13,9 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import unet.bencode.variables.BencodeArray;
 import unet.bencode.variables.BencodeObject;
 
 @Data
@@ -29,6 +32,7 @@ import unet.bencode.variables.BencodeObject;
 public class Torrent {
 
     private String announce;
+    private List<String> announceList;
     private String name;
     private String comment;
     private String createdBy;
@@ -46,6 +50,7 @@ public class Torrent {
 
     public Torrent(BencodeObject bencode) {
         this.announce = bencode.getString("announce");
+        this.announceList = createAnnounceList(bencode.getBencodeArray("announce-list"));
         this.comment = bencode.getString("comment");
         this.createdBy = bencode.getString("created by");
         long creationDate = bencode.getLong("creation date");
@@ -59,6 +64,24 @@ public class Torrent {
         this.infoHash = calculateInfoHash(bytesInfo);
         this.pieceHashes = splitPiecesIntoHashes(pieces);
         this.peerId = generatePeerId();
+    }
+    
+    public List<String> createAnnounceList(BencodeArray announceListArray){
+    	this.announceList = new ArrayList<>();
+//        if (announceListArray != null) {
+//            this.announceList = new ArrayList<>();
+//            for (int i = 0; i < announceListArray.size(); i++) {
+//                BencodeArray sublist = announceListArray.getBencodeArray(i);
+//                if (sublist != null) {
+//                    for (int j = 0; j < sublist.size(); j++) {
+//                        String announceUrl = sublist.getString(j);
+//                        this.announceList.add(announceUrl);
+//                    }
+//                }
+//            }
+//        }
+        announceList.add(this.announce);
+        return announceList;
     }
     
     public static Torrent fromFile(String filePath) {
@@ -84,43 +107,25 @@ public class Torrent {
     	return sb.toString();
 	}
 
-	public String createRequestURL() {
+	public List<String> createRequestURLs() {
         String encodedInfoHash = urlEncode(infoHash);
         int port = 12345;
         long uploaded = 0;
         long downloaded = 0;
         long left = this.length;
+        
+        List<String> requestUrls = new ArrayList<>();
+        for (String announce : announceList) {
+            String query = String.format("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d",
+                    announce, encodedInfoHash, this.peerId, port, uploaded, downloaded, left);
+            requestUrls.add(query);
+        }
 
-        String query = String.format("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d",
-                this.announce, encodedInfoHash, this.peerId, port, uploaded, downloaded, left);
+//        String query = String.format("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d",
+//                this.announce, encodedInfoHash, this.peerId, port, uploaded, downloaded, left);
         
-        return query;
+        return requestUrls;
 
-    }
-    
-    public byte[] generateBitfield() {
-        // Get the number of pieces
-        int numberOfPieces = getPieceHashes().length;
-        
-        // Calculate the number of bytes needed
-        int bitfieldBytes = (int) Math.ceil((double) numberOfPieces / 8);
-        
-        // Create the bitfield, initialized to all zeros
-        byte[] bitfield = new byte[bitfieldBytes];
-        
-        // Create the message, considering 4 bytes for length, 1 for message type
-        byte[] data = new byte[bitfieldBytes + 5];
-        
-        // Set the message length
-        ByteBuffer.wrap(data).putInt(bitfieldBytes + 1); // +1 for the message type byte
-
-        // Set the message type (5 for bitfield according to the BitTorrent spec)
-        data[4] = 5;
-        
-        // Copy the bitfield
-        System.arraycopy(bitfield, 0, data, 5, bitfieldBytes);
-        
-        return data;
     }
     
     private byte[] calculateInfoHash(byte[] infoDictBytes) {
@@ -177,18 +182,14 @@ public class Torrent {
                 ", pieces=" + Arrays.toString(pieces) +
                 ", isPrivate=" + isPrivate + "\n" +
                 ", infoHash Length=" + infoHash.length +
-//                ", infoHash=" + Arrays.toString(infoHash) +
-//                ", pieceHashes=" + Arrays.deepToString(pieceHashes) +
                 '}';
     }
-    
 
     public enum Encoding {
         UTF8,
         UTF16,
         ASCII,
     }
-
 
 	public byte[] getPieceHash(int pieceIndex) {
 		return pieceHashes[pieceIndex];

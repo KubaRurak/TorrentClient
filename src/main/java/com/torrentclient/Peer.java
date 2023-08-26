@@ -1,8 +1,8 @@
 package com.torrentclient;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -27,14 +27,9 @@ public class Peer {
         this.port = port;
     }
 
-    public static List<Peer> makePeerListFromResponse(String responseWithPeerList) {
-        BencodeObject bencodeResponse = new BencodeObject(responseWithPeerList.getBytes());
-        return makePeerListFromBencode(bencodeResponse);
-    }
-
-    public static String requestResponseWithPeerList(String requestUrl) {
+    public static byte[] requestResponseWithPeerList(String requestUrl) {
         HttpURLConnection connection = null;
-        StringBuilder response = new StringBuilder();
+        byte response[] = null;
 
         try {
             connection = (HttpURLConnection) new URL(requestUrl).openConnection();
@@ -54,26 +49,26 @@ public class Peer {
             }
         }
 
-        return response.toString();
-    }
-
-    private static StringBuilder readResponse(HttpURLConnection connection) throws IOException {
-        StringBuilder response = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-            logger.info("Response:");
-            logger.info(response.toString());
-        }
         return response;
     }
-
-    public static List<Peer> makePeerListFromBencode(BencodeObject bencodeResponse) {
+    
+    private static byte[] readResponse(HttpURLConnection connection) throws IOException {
+        try (InputStream in = connection.getInputStream()) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            while ((bytesRead = in.read(buffer)) != -1) {
+                out.write(buffer, 0, bytesRead);
+            }
+            return out.toByteArray();
+        }
+    }
+    public static List<Peer> makePeerList(byte[] responseWithPeerList) {
         List<Peer> peers = new ArrayList<>();
-        BencodeArray peersArray = bencodeResponse.getBencodeArray("peers");
-        if (peersArray != null) {
+        BencodeObject bencodeResponse = new BencodeObject(responseWithPeerList);
+        Object peersElement = getApropriateObject(bencodeResponse, "peers");
+        if (peersElement instanceof BencodeArray) {
+            BencodeArray peersArray = bencodeResponse.getBencodeArray("peers");
             for (int i = 0; i < peersArray.size(); i++) {
                 BencodeObject peerObj = peersArray.getBencodeObject(i);
                 if (peerObj != null) {
@@ -84,13 +79,36 @@ public class Peer {
                     peers.add(peer);
                 }
             }
+        } else if (peersElement instanceof byte[]) {
+            byte[] peersBytes = bencodeResponse.getBytes("peers");
+            for (int i = 0; i < peersBytes.length; i += 6) {
+                String ip = String.format("%d.%d.%d.%d", peersBytes[i] & 0xFF, peersBytes[i+1] & 0xFF, peersBytes[i+2] & 0xFF, peersBytes[i+3] & 0xFF);
+                int port = ((peersBytes[i+4] & 0xFF) << 8) | (peersBytes[i+5] & 0xFF);
+                peers.add(new Peer(ip, port));
+            }
         }
+
         peers.stream().forEach(peer -> System.out.println("ip: " + peer.getIpAddress() + " port: " + peer.getPort()));
         return peers;
     }
     
-    public static List<Peer> fetchPeers(String requestUrl) {
-        String responseWithPeerList = requestResponseWithPeerList(requestUrl);
-        return makePeerListFromResponse(responseWithPeerList);
+
+    
+    public static List<Peer> fetchPeers(List<String> requestUrls) {
+        List<Peer> allPeers = new ArrayList<>();
+        for (String requestUrl : requestUrls) {
+            byte[] responseWithPeerList = requestResponseWithPeerList(requestUrl);
+            List<Peer> peers = makePeerList(responseWithPeerList);
+            allPeers.addAll(peers);
+        }
+        return allPeers;
+    }
+    
+    public static Object getApropriateObject(BencodeObject bencodeObject, String key) {
+        try {
+            return bencodeObject.getBencodeArray(key);
+        } catch (ClassCastException e) {
+            return bencodeObject.getBytes(key);
+        }
     }
 }

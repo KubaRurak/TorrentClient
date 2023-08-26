@@ -48,7 +48,7 @@ public class FileManager {
                 Files.copy(pieceFile.toPath(), fos);
             }
         } catch (IOException e) {
-            logger.warn("Merging failed", e); 
+            logger.debug("Merging failed"); 
             return;  
         }
         File mergedFile = new File(outputFile);

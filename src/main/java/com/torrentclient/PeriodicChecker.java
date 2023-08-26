@@ -34,29 +34,18 @@ public class PeriodicChecker {
     }
 
     private void checkStatus() {
-        boolean allClientsIdle = true;
+        int numClientsIdle=0;
         logger.debug("Periodically checking status");
-        logger.info("Current activeClients: " + activeClients.size());
+        logger.debug("Current activeClients: " + activeClients.size());
         for (Client client : activeClients) {
         	if (client.isIdle()) {
-        		logger.info("Client is idle: " + client);
+        		logger.debug("Client is idle: " + client);
+        		numClientsIdle++;
         	}
-            if (!client.isIdle()) {
-            	logger.info("client is not idle: " + client);
-                allClientsIdle = false;
-            }
         }
-    	logger.info("is Download complete: " + isDownloadComplete());
-    	logger.info("pieceQueue size is " + pieceQueue.size());
-        if (allClientsIdle) {
-        	logger.info("All clients are idle!");
-        	logger.info("is Download complete: " + isDownloadComplete());
-        	logger.info("pieceQueue size is " + pieceQueue.size());
-        }
-        else logger.info("Not every client is idle");
 
-        if (allClientsIdle && pieceQueue.isEmpty() && !isDownloadComplete()) {
-            logger.warn("All clients are idle but the download is not complete.");
+        if (numClientsIdle>1 && pieceQueue.isEmpty() && !isDownloadComplete()) {
+            logger.debug("Clients are idle but the download is not complete.");
             recoverMissingPieces();
         }
     }
@@ -72,20 +61,20 @@ public class PeriodicChecker {
             PieceState missingPiece = new PieceState(blocksPerPiece, missingPieceIndex);  // Adjust this instantiation as needed.
             pieceQueue.add(missingPiece);
         }
-        logger.info(missingPieces.size() + " missing pieces re-added to the queue.");
+        logger.debug(missingPieces.size() + " missing pieces re-added to the queue.");
     }
     public void stop() {
         if (periodicCheckerExecutor != null) {
-        	logger.info("periodicChecker shutdown");
+        	logger.debug("periodicChecker shutdown");
             periodicCheckerExecutor.shutdown();
             try {
                 if (!periodicCheckerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                	logger.info("periodicChecker shutdown - await termination");
+                	logger.debug("periodicChecker shutdown - await termination");
                     periodicCheckerExecutor.shutdownNow();
                 }
             } catch (InterruptedException ex) {
                 periodicCheckerExecutor.shutdownNow();
-            	logger.info("periodicChecker - Interrupted exception");
+            	logger.debug("periodicChecker - Interrupted exception");
                 Thread.currentThread().interrupt();
             }
         }

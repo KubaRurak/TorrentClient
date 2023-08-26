@@ -31,20 +31,24 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
 	
     private ExecutorService connectionThreadPool;
     private PeriodicChecker periodicChecker;
-    private final ReentrantLock finalizeLock = new ReentrantLock();
+    private SpeedLogger speedLogger;
+
     private static final int maxBlockSize = 16384;
     private int numberOfPieces;
-    private String path = "torrentfile/debian-edu-12.1.0-amd64-netinst.iso.torrent";
-    private SpeedLogger speedLogger;
+	private int blocksPerPiece;
+	
+    private String path = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
+    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads" + File.separator + "backup";
+    
     private Torrent torrent;
     private FileManager fileManager;
-    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads" + File.separator + "backup";
-	private int blocksPerPiece;
+
 	private ConcurrentHashMap<Integer,PieceState> pieceStates;
     private Bitfield downloadedPiecesBitfield;
     private Queue<PieceState> pieceQueue;
     private Set<Integer> piecesBeingDownloaded;
     private final List<Client> activeClients = Collections.synchronizedList(new ArrayList<>());
+    
 
 	
     private static final Logger logger = LoggerFactory.getLogger(TorrentClient.class);
@@ -61,7 +65,7 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
         setupConnectionThreadPool();
         fileManager = new FileManager(storagePath, torrent.getName());
         initializeDataStructures();
-        speedLogger = new SpeedLogger(numberOfPieces, downloadedPiecesBitfield);
+        speedLogger = new SpeedLogger(numberOfPieces, downloadedPiecesBitfield, torrent.getLength());
         speedLogger.start();
 	    periodicChecker = new PeriodicChecker(activeClients, pieceQueue,
 			downloadedPiecesBitfield, this::isDownloadComplete, blocksPerPiece);
@@ -75,65 +79,56 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
 
     private void cleanup() {
         logger.debug("Shutting down connections");
-        disconnectActiveClients();  // Disconnect all active clients
+        disconnectActiveClients(); 
         connectionThreadPool.shutdown();
-        logger.info("After connection ThreadPoll shutdown");
-//        try {
-//			if (!connectionThreadPool.awaitTermination(60, TimeUnit.SECONDS)) {  // wait for 60 seconds
-//			    connectionThreadPool.shutdownNow();
-//			}
-//		} catch (InterruptedException e) {
-//			e.printStackTrace();
-//		}
+        logger.debug("After connection ThreadPoll shutdown");
+        if (isDownloadComplete()) {
+        	logger.info("Download succesfull, closing app");
+        	System.exit(0); // need to fix this to not have to rely on that
+        }
         try {
             connectionThreadPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
-            logger.info("Terminating threads");
+            logger.debug("Terminating threads");
         } catch (InterruptedException e) {
-            logger.error("Download threads interrupted", e);
+            logger.debug("Download threads interrupted", e);
         }
-        logger.info("threads terminated");
+        logger.debug("threads terminated");
         speedLogger.stop();
         periodicChecker.stop();
-        System.exit(0);
+        
     }
 
     private void finalizeDownload() {
-        if (!finalizeLock.tryLock()) {
-            return;
-        }
-        try {
-            if (!isDownloadComplete()) {
-                logger.debug("Download was not completed successfully");
-                return;
-            }
-            if (!fileManager.isFileMerged()) {
-                fileManager.mergeFiles(numberOfPieces, torrent.getLength());
-            }
-            
-        } finally {
-            finalizeLock.unlock();
-            cleanup();
-        }
+    	try {
+    		if (!isDownloadComplete()) {
+    			logger.debug("Download was not completed successfully");
+    			return;
+    		}
+    		if (!fileManager.isFileMerged()) {
+    			fileManager.mergeFiles(numberOfPieces, torrent.getLength());
+    		}
+    	} finally {
+    		cleanup();
+    	}
     }
 
-
     private void setupConnectionThreadPool() {
-        int numThreads = 6; // Adjust the number of threads as needed
+        int numThreads = 6; 
         connectionThreadPool = Executors.newFixedThreadPool(numThreads);
     }
 
     private List<Peer> getPeerList() {
-        String requestUrl = torrent.createRequestURL();
-        return Peer.fetchPeers(requestUrl);
+        List<String> requestUrls = torrent.createRequestURLs();
+        return Peer.fetchPeers(requestUrls);
     }
-
+    
     private void startDownloading(List<Peer> peerList) {
     	Handshake handshake = new Handshake(torrent.getInfoHash(), torrent.getPeerIdBytes());
     	for (Peer peer : peerList) {
     		connectionThreadPool.submit(() -> {
     			if (isDownloadComplete()) return;
     			Client client = new Client(torrent, peer, handshake, this, this);
-    			logger.info("new client");
+    			logger.debug("new client");
     			if (client.initializeConnection()) {
     				activeClients.add(client);
     				attemptDownloadPiece(client);
@@ -142,42 +137,15 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     		});
     	}
     }
-    
-//    private void startDownloading(List<Peer> peerList) {
-//        Handshake handshake = new Handshake(torrent.getInfoHash(), torrent.getPeerIdBytes());
-//        for (Peer peer : peerList) {
-//            connectionThreadPool.submit(() -> {
-//                if (isDownloadComplete() || forceShutdown) return;
-//                Client client = new Client(torrent, peer, handshake, this, this);
-//                logger.info("new client");
-//                if (client.initializeConnection()) {
-//                    activeClients.add(client);
-//                    attemptDownloadPiece(client);
-//                    activeClients.remove(client);
-//                }
-//                
-//                // Wait for the merge completion or forced shutdown
-//                synchronized (mergeNotification) {
-//                    try {
-//                        while (!forceShutdown) {
-//                            mergeNotification.wait(1000);  // Check every second
-//                        }
-//                    } catch (InterruptedException e) {
-//                        Thread.currentThread().interrupt();
-//                    }
-//                }
-//            });
-//        }
-//    }
 
     private void attemptDownloadPiece(Client client) {
         try {
             setupDownload(client);
             processPieces(client);
         } catch (IOException e) {
-            logger.error("IOException during piece download", e);
+            logger.debug("IOException during piece download", e);
         } catch (Exception e) {
-            logger.error("Error during piece download", e);
+            logger.debug("Error during piece download", e);
         }
     }
 
@@ -188,32 +156,23 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     }
     
     private void processPieces(Client client) throws InterruptedException, IOException {
-    	logger.debug("Entering processPiece for client" + client);
-    	logger.debug("Initial state: pieceQueue size: " + pieceQueue.size() + ", piecesBeingDownloaded size: " + piecesBeingDownloaded.size());
     	while ((!pieceQueue.isEmpty() || !piecesBeingDownloaded.isEmpty() || !client.workQueue.isEmpty()) && client.isSocketOpen()) {
             if (!client.isChoked()) {
             	logger.debug("Inside loop: pieceQueue size: " + pieceQueue.size() + ", piecesBeingDownloaded size: " + piecesBeingDownloaded.size());
                 if (client.workQueue.size() < blocksPerPiece) {
                     // If workQueue has less blocks than a typical piece, get a new piece and add its blocks
                     Optional<PieceState> optionalPieceState = chooseRandomPiece(client);
-                    logger.debug("Client workQueue size: " + client.workQueue.size());
-                    logger.debug("Client currentOutstandingRequests: " + client.currentOutstandingRequests);
-                    logger.debug("Client outstandingRequests size: " + client.outstandingRequests.size());
                     if (optionalPieceState.isPresent()) {
                         PieceState currentPieceState = optionalPieceState.get();
                         int pieceIndex = currentPieceState.getPieceIndex();
                         piecesBeingDownloaded.add(pieceIndex);
-                        logger.debug("Grabbed pieceIndex: " + pieceIndex + " from queue");
-                        logger.debug("Before populating workQueue. workQueue size: " + client.workQueue.size());
                         populateWorkQueueIfNeeded(client, pieceIndex);
-                        logger.debug("After populating workQueue. workQueue size: " + client.workQueue.size()); 
                     }
                 }
                 sendBlockRequests(client);
             }
             handleIncomingMessages(client);
         }
-        logger.info("Exiting processPiece for client" + client);
     }
     
     
@@ -241,8 +200,6 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     }
 
     private void sendBlockRequests(Client client) throws IOException {
-    	logger.debug("Sending block requests. Initial outstanding requests: " + client.currentOutstandingRequests);
-    	logger.debug("Before sending requests - current workQueue size: " + client.workQueue.size());
         while (client.currentOutstandingRequests < Client.MAX_OUTSTANDING_REQUESTS && !client.workQueue.isEmpty()) {
             BlockRequest request = client.workQueue.poll();
             client.sendRequestMessage(request);
@@ -258,10 +215,10 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
             Message message = client.receiveAndParseMessage();
             client.handleMessage(message);
         } catch (SocketTimeoutException e) {
-            logger.error("Client timed out");
+            logger.debug("Client timed out");
             client.closeConnection();
         } catch (IOException e) {
-            logger.error("An error occurred while handling incoming messages", e);
+            logger.debug("An error occurred while handling incoming messages");
             client.closeConnection();
         }
     }
@@ -288,7 +245,7 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
                 handleFullPiece(pieceIndex, buf, client);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.debug("Caught exception on pieceMessage");;
         }
     }
 
@@ -339,8 +296,7 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     
     
     private boolean shouldDownloadPiece(Client client, int pieceIndex) {
-        return client.getBitfieldObject().hasPiece(pieceIndex);
-
+        return client.getBitfield().hasPiece(pieceIndex);
 //        return (!piecesBeingDownloaded.contains(pieceIndex)) && client.getBitfieldObject().hasPiece(pieceIndex);
     }
     
@@ -348,7 +304,7 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
         return client.workQueue.size() < blocksPerPiece;
     }
     
-    Optional<PieceState> chooseRandomPiece(Client client) {
+    private Optional<PieceState> chooseRandomPiece(Client client) {
     	logger.debug("Choosing a random piece");
         int piecesChecked = 0;
         int queueSize = pieceQueue.size();
@@ -356,7 +312,7 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
             PieceState piece = pieceQueue.poll();
             int pieceIndex = piece.getPieceIndex();
             logger.debug("PiecesBeingDownloaded contains pieceIndex {} : {}",pieceIndex, piecesBeingDownloaded.contains(pieceIndex));
-            logger.debug("Does client have that piece? : " + client.getBitfieldObject().hasPiece(pieceIndex));
+            logger.debug("Does client have that piece? : " + client.getBitfield().hasPiece(pieceIndex));
             if (shouldDownloadPiece(client, pieceIndex)) {
             	logger.debug("Chosen piece index: " + pieceIndex);
                 return Optional.of(piece);
@@ -432,16 +388,16 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     @Override
     public void onException(Client client, Exception e) {
         if (e instanceof SocketTimeoutException) {
-            logger.error("Socket Timeout Exception");
+            logger.debug("Socket Timeout Exception");
             onConnectionClosed(client);
         } else if (e instanceof IOException) {
-            logger.error("IO exception", e);
+            logger.debug("IO exception", e);
             onConnectionClosed(client);
             client.closeConnection();
         } else if (e instanceof WrongMessageTypeException) {
-            logger.error("Received an invalid message type", e);
+            logger.debug("Received an invalid message type", e);
         } else if (e instanceof WrongPayloadLengthException) {
-            logger.error("Received a message with incorrect payload length", e);
+            logger.debug("Received a message with incorrect payload length", e);
         }
     }
     
@@ -465,10 +421,10 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
                 try {
                     client.closeConnection();
                 } catch (Exception e) {
-                    logger.error("Error disconnecting client: " + client.toString(), e);
+                    logger.debug("Error disconnecting client: " + client.toString(), e);
                 }
             }
-            activeClients.clear();  // Clear the list once all clients are disconnected.
+            activeClients.clear();
         }
         logger.debug("All active clients disconnected.");
     }
