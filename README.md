@@ -18,6 +18,7 @@ Provide a detailed description of your project. Explain what your project is, wh
 3. Run a container based on the `torrentclient` image:
 
 docker run -p 8080:8080 torrentclient <torrent-file-path> <save-path>
+
 Replace `<torrent-file-path>` and `<save-path>` with the appropriate values for your application.
 
 ### Using JAR file
@@ -25,7 +26,9 @@ Replace `<torrent-file-path>` and `<save-path>` with the appropriate values for 
 1. Install JDK 17 on your machine.
 
 2. Run the JAR file:
+
 java -jar TorrentClient-0.0.1-SNAPSHOT.jar <torrent-file-path> <save-path>
+
 Replace `<torrent-file-path>` and `<save-path>` with the appropriate values for your application.
 
 ## How it Works
