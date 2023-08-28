@@ -8,28 +8,26 @@ Provide a detailed description of your project. Explain what your project is, wh
 
 ## Installation
 
-### Using Docker
+1. Prerequisites
+You need to have the following installed on your local machine:
 
-1. Install Docker on your machine.
+* Java 17 or later
+* Maven
+2. Building
+*Clone the repository to your local machine:
+git clone <repository-url>
 
-2. Build the Docker image:
-   docker build -t torrentclient .
+*Navigate to the project directory:
+cd TorrentClient
 
-3. Run a container based on the `torrentclient` image:
+*Compile and package the application:
+mvn clean package
 
-docker run -p 8080:8080 -v C:\:/host torrentclient /host/<torrent-file-path> /host/<save-path>
+*Running
+You can run the application using the java command:
 
-Replace `<torrent-file-path>` and `<save-path>` with the appropriate values for your application (assuming using c:/ drive).
-
-### Using JAR file
-
-1. Install JDK 17 on your machine.
-
-2. Run the JAR file:
-
-java -jar TorrentClient-0.0.1-SNAPSHOT.jar <torrent-file-path> <save-path>
-
-Replace `<torrent-file-path>` and `<save-path>` with the appropriate values for your application.
+java -jar target/TorrentClient-0.0.1-SNAPSHOT.jar <torrent-file-path> <save-path>
+Replace <torrent-file-path> with the path to the torrent file you want to download and <save-path> with the directory where you want to save the downloaded file.
 
 ## How it Works
 
