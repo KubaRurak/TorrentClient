@@ -17,9 +17,9 @@ Provide a detailed description of your project. Explain what your project is, wh
 
 3. Run a container based on the `torrentclient` image:
 
-docker run -p 8080:8080 torrentclient <torrent-file-path> <save-path>
+docker run -p 8080:8080 -v C:\:/host torrentclient /host/<torrent-file-path> /host/<save-path>
 
-Replace `<torrent-file-path>` and `<save-path>` with the appropriate values for your application.
+Replace `<torrent-file-path>` and `<save-path>` with the appropriate values for your application (assuming using c:/ drive).
 
 ### Using JAR file
 
