@@ -13,6 +13,7 @@ You need to have the following installed on your local machine:
 
 * Java 17 or later
 * Maven
+  
 2. Building
 * Clone the repository to your local machine:
  git clone <repository-url>
@@ -27,6 +28,7 @@ You need to have the following installed on your local machine:
  You can run the application using the java command:
 
 java -jar target/TorrentClient-0.0.1-SNAPSHOT.jar <torrent-file-path> <save-path>
+
 Replace <torrent-file-path> with the path to the torrent file you want to download and <save-path> with the directory where you want to save the downloaded file.
 
 ## How it Works
