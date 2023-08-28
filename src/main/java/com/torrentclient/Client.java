@@ -78,7 +78,7 @@ public class Client {
 	    } catch (SocketTimeoutException e) {
 	        logger.debug("Socket timeout occurred during communication in initializeConnection");
 	    } catch (IOException e) {
-	        logger.error("IO exception in initializeConnection");	
+	        logger.debug("IO exception in initializeConnection");	
 	    } finally {
 	        adjustSocketTimeout(10000);
 	    }

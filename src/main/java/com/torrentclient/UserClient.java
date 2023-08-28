@@ -113,7 +113,7 @@ public class UserClient implements PieceMessageCallback, ClientExceptionCallback
     }
 
     private void setupConnectionThreadPool() {
-        int numThreads = 6; 
+        int numThreads = 8; 
         connectionThreadPool = Executors.newFixedThreadPool(numThreads);
     }
 

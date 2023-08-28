@@ -23,10 +23,6 @@ public class TorrentClientApplication implements CommandLineRunner {
 
 	    String torrentFilePath = args[0];
 	    String savePath = args[1];
-	    
-//		String torrentFilePath = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
-//		String savePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads" + File.separator + "backup";
-//		System.out.println("Save path: " + savePath);
 
 	    UserClient userClient = new UserClient(torrentFilePath, savePath);
 	    userClient.start();
