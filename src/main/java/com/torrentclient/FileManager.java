@@ -12,7 +12,7 @@ public class FileManager {
 
     private static final Logger logger = LoggerFactory.getLogger(FileManager.class);
     private final String storagePath;
-    private final String torrentName; // Added field
+    private final String torrentName;
     private boolean isMerged;
 
     public FileManager(String storagePath, String torrentName) {

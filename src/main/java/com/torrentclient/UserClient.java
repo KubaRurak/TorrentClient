@@ -1,6 +1,5 @@
 package com.torrentclient;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
@@ -19,7 +18,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +25,7 @@ import org.slf4j.LoggerFactory;
 import com.torrentclient.exceptions.WrongMessageTypeException;
 import com.torrentclient.exceptions.WrongPayloadLengthException;
 
-public class TorrentClient implements PieceMessageCallback, ClientExceptionCallback {
+public class UserClient implements PieceMessageCallback, ClientExceptionCallback {
 	
     private ExecutorService connectionThreadPool;
     private PeriodicChecker periodicChecker;
@@ -37,8 +35,6 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     private int numberOfPieces;
 	private int blocksPerPiece;
 	
-//    private String path = "torrentfile/debian-12.1.0-mipsel-netinst.iso.torrent";
-//    private String storagePath = "C:" + File.separator + "torrentfile" + File.separator + "downloads" + File.separator + "backup";
     private String path;
     private String storagePath;
     private Torrent torrent;
@@ -50,9 +46,9 @@ public class TorrentClient implements PieceMessageCallback, ClientExceptionCallb
     private Set<Integer> piecesBeingDownloaded;
     private final List<Client> activeClients = Collections.synchronizedList(new ArrayList<>());
     
-    private static final Logger logger = LoggerFactory.getLogger(TorrentClient.class);
+    private static final Logger logger = LoggerFactory.getLogger(UserClient.class);
     
-    public TorrentClient(String torrentFilePath, String savePath) {
+    public UserClient(String torrentFilePath, String savePath) {
         this.path = torrentFilePath;
         this.storagePath = savePath;
     }

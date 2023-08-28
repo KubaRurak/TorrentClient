@@ -15,7 +15,7 @@ public class PeriodicChecker {
     private final ScheduledExecutorService periodicCheckerExecutor;
     private final List<Client> activeClients;
     private Queue<PieceState> pieceQueue;
-    private final Bitfield downloadedPiecesBitfield;  // Or whatever structure you use to track download status
+    private final Bitfield downloadedPiecesBitfield;
     private final Supplier<Boolean> isDownloadCompleteSupplier;
     private static final Logger logger = LoggerFactory.getLogger(PeriodicChecker.class);
     private int blocksPerPiece;
@@ -58,7 +58,7 @@ public class PeriodicChecker {
     private void recoverMissingPieces() {
         List<Integer> missingPieces = downloadedPiecesBitfield.getMissingPieces();
         for (int missingPieceIndex : missingPieces) {
-            PieceState missingPiece = new PieceState(blocksPerPiece, missingPieceIndex);  // Adjust this instantiation as needed.
+            PieceState missingPiece = new PieceState(blocksPerPiece, missingPieceIndex);
             pieceQueue.add(missingPiece);
         }
         logger.debug(missingPieces.size() + " missing pieces re-added to the queue.");
