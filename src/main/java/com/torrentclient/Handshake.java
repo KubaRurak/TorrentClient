@@ -8,7 +8,6 @@ import lombok.Data;
 @Data
 public class Handshake {
 	    
-    private static final int HANDSHAKE_HEADER_LENGTH = 68;
 	private String pstr;
     private byte[] infoHash;
     private byte[] peerId;

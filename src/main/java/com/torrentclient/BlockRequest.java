@@ -1,7 +1,5 @@
 package com.torrentclient;
 
-import java.util.Objects;
-
 import lombok.Data;
 @Data
 public class BlockRequest {

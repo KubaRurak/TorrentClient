@@ -12,7 +12,8 @@ public class FileManager {
 
     private static final Logger logger = LoggerFactory.getLogger(FileManager.class);
     private final String storagePath;
-    private final String torrentName; // Added field
+    private final String torrentName;
+    private boolean isMerged;
 
     public FileManager(String storagePath, String torrentName) {
         this.storagePath = storagePath;
@@ -39,7 +40,7 @@ public class FileManager {
 
     public void mergeFiles(int numberOfPieces, long torrentLength) {
         String outputFile = storagePath + File.separator + torrentName;
-        logger.info("Merging files");
+        System.out.println("\nMerging files");
         // Merge process
         try (FileOutputStream fos = new FileOutputStream(outputFile)) {
             for (int i = 0; i < numberOfPieces; i++) {
@@ -47,29 +48,35 @@ public class FileManager {
                 Files.copy(pieceFile.toPath(), fos);
             }
         } catch (IOException e) {
-            logger.warn("Merging failed", e); 
+            logger.debug("Merging failed"); 
             return;  
         }
         File mergedFile = new File(outputFile);
-        long expectedSize = torrentLength;  
+        long expectedSize = torrentLength;
+        isMerged=true;
         if (mergedFile.length() == expectedSize) {
-        	logger.info("Merging success, downloading parts");
+        	System.out.println("Merging success, deleting parts");
             for (int i = 0; i < numberOfPieces; i++) {
                 File pieceFile = new File(storagePath + File.separator + torrentName + ".piece." + i);
                 try {
                     Files.deleteIfExists(pieceFile.toPath());
                 } catch (IOException e) {
-                    logger.warn("Failed to delete piece file: " + pieceFile.getName(), e);
+                	System.out.println("Failed to delete piece file: " + pieceFile.getName());
                 }
             }
         } else {
             logger.warn("Merged file size doesn't match expected size. Not deleting piece files.");
         }
+        System.out.println("Download succesfull, closing app");
     }
     
     public boolean isPieceDownloaded(int pieceIndex) {
         String pieceFileName = storagePath + File.separator + torrentName + ".piece." + pieceIndex;
         File pieceFile = new File(pieceFileName);
         return pieceFile.exists();
+    }
+    
+    public boolean isFileMerged() {
+    	return isMerged;
     }
 }

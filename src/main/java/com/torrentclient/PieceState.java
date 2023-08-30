@@ -10,12 +10,6 @@ public class PieceState {
     private final int totalBlocks;
     private boolean isComplete;
     
-    public PieceState(int totalBlocks, int pieceIndex, boolean isComplete) {
-    	this.pieceIndex = pieceIndex;
-        this.blocksReceived = new BitSet(totalBlocks);
-        this.totalBlocks = totalBlocks;
-        this.isComplete = isComplete;
-    }
     
     public PieceState(int totalBlocks, int pieceIndex) {
     	this.pieceIndex = pieceIndex;
