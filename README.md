@@ -1,6 +1,6 @@
-# Simple Bittorrent protocol client
+# Simple Console Bittorent protocol client
 
-A simple Bittorrent protocol client that supports downloading. This is a research project to help learn about client connections, TCP, ByteStreams, multithreading, file I/O, and custom decoding.
+A simple Bittorrent protocol client that supports downloading from peers. This is a research project to help learn about client connections, TCP, ByteStreams, multithreading, file I/O, and custom decoding.
 
 ## Description
 
