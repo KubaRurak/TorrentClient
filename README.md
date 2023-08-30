@@ -40,7 +40,7 @@ Replace <torrent-file-path> with the path to the torrent file you want to downlo
 
 ## How it Works
 
-1. Decoding the Torrent File
+1. Decoding the torrent file
 * The first step is to decode the .torrent file, which is encoded in a custom format known as Bencode. [The Bencode library](https://github.com/DrBrad/Bencode/tree/main) is used for this purpose. The Torrent class is responsible for keeping torrent meta information.
 * Important Fields:
   * announce: A URL for HTTP connection returning a Bencoded list of peers.
@@ -48,7 +48,7 @@ Replace <torrent-file-path> with the path to the torrent file you want to downlo
   * pieceLength: Length of individual pieces.
   * pieceHashes: 20-byte arrays of hashes for each piece, for verification purposes
   * infoHash: representation of the whole torrent file.
-2. Requesting Peer List
+2. Requesting peer list
 * The Peer class is responsible for creating the list of peers to connect to for requesting files. This is achieved by establishing an HttpURLConnection with the announce URL, sending a request, and receiving back a bencoded peer list.
 * Important points:
   * The connection is made to the announce URL obtained from the .torrent file.
@@ -76,7 +76,7 @@ Replace <torrent-file-path> with the path to the torrent file you want to downlo
 1. Handling peer connections
 
 * Choking and unchoking: Peers may suddenly choke or unchoke the client. This necessitates the client to have a robust system in place to adapt its download strategy dynamically. If a peer chokes, the client needs to reassign that work to another peer if available.
-* Unpredictable Behavior: Peers may also behave unpredictably, disconnecting without warning or sending corrupt data. The client must have mechanisms to detect and handle such behavior.
+* Unpredictable behavior: Peers may also behave unpredictably, disconnecting without warning or sending corrupt data. The client must have mechanisms to detect and handle such behavior.
 
 2. Managing Multiple Connections
 
