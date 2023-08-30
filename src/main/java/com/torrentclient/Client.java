@@ -201,7 +201,7 @@ public class Client {
 	    }
 
 	    if (bytesRead != 4) {
-	        System.err.println("Expected to read 4 bytes for message length but got: " + bytesRead);
+	        logger.debug("Expected to read 4 bytes for message length but got: " + bytesRead);
 	        throw new IOException("Unexpected number of bytes read for message length: " + bytesRead);
 	    }
 

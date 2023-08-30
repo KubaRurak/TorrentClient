@@ -40,7 +40,7 @@ public class FileManager {
 
     public void mergeFiles(int numberOfPieces, long torrentLength) {
         String outputFile = storagePath + File.separator + torrentName;
-        System.out.println("Merging files");
+        System.out.println("\nMerging files");
         // Merge process
         try (FileOutputStream fos = new FileOutputStream(outputFile)) {
             for (int i = 0; i < numberOfPieces; i++) {
@@ -67,6 +67,7 @@ public class FileManager {
         } else {
             logger.warn("Merged file size doesn't match expected size. Not deleting piece files.");
         }
+        System.out.println("Download succesfull, closing app");
     }
     
     public boolean isPieceDownloaded(int pieceIndex) {

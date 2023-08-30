@@ -30,7 +30,7 @@ public class PeriodicChecker {
     }
 
     public void start() {
-        periodicCheckerExecutor.scheduleAtFixedRate(this::checkStatus, 0, 5, TimeUnit.SECONDS);
+        periodicCheckerExecutor.scheduleAtFixedRate(this::checkStatus, 0, 3, TimeUnit.SECONDS);
     }
 
     private void checkStatus() {

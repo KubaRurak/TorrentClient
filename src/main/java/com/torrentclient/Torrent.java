@@ -87,6 +87,7 @@ public class Torrent {
     public static Torrent fromFile(String filePath) {
         try {
             BencodeObject bencode = loadFromFile(filePath);
+            logger.info("Initializing torrent file");
             return new Torrent(bencode);
         } catch (Exception e) {
             logger.error("Failed to load torrent from file: " + filePath, e);
@@ -119,11 +120,7 @@ public class Torrent {
             String query = String.format("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d",
                     announce, encodedInfoHash, this.peerId, port, uploaded, downloaded, left);
             requestUrls.add(query);
-        }
-
-//        String query = String.format("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d",
-//                this.announce, encodedInfoHash, this.peerId, port, uploaded, downloaded, left);
-        
+        } 
         return requestUrls;
 
     }

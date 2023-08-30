@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,8 @@ public class UserClient implements PieceMessageCallback, ClientExceptionCallback
     private Queue<PieceState> pieceQueue;
     private Set<Integer> piecesBeingDownloaded;
     private final List<Client> activeClients = Collections.synchronizedList(new ArrayList<>());
+    private final ReentrantLock mergeLock = new ReentrantLock();
+
     
     private static final Logger logger = LoggerFactory.getLogger(UserClient.class);
     
@@ -81,9 +84,8 @@ public class UserClient implements PieceMessageCallback, ClientExceptionCallback
         logger.debug("Shutting down connections");
         disconnectActiveClients(); 
         connectionThreadPool.shutdown();
-        logger.debug("After connection ThreadPoll shutdown");
         if (isDownloadComplete()) {
-        	logger.info("Download succesfull, closing app");
+        	logger.debug("Download succesfull, closing app");
         	System.exit(0); // need to fix this to not have to rely on that
         }
         try {
@@ -92,24 +94,28 @@ public class UserClient implements PieceMessageCallback, ClientExceptionCallback
         } catch (InterruptedException e) {
             logger.debug("Download threads interrupted", e);
         }
-        logger.debug("threads terminated");
-        speedLogger.stop();
-        periodicChecker.stop();
         
     }
 
     private void finalizeDownload() {
-    	try {
-    		if (!isDownloadComplete()) {
-    			logger.debug("Download was not completed successfully");
-    			return;
-    		}
-    		if (!fileManager.isFileMerged()) {
-    			fileManager.mergeFiles(numberOfPieces, torrent.getLength());
-    		}
-    	} finally {
-    		cleanup();
-    	}
+        try {
+            if (!isDownloadComplete()) {
+                logger.debug("Download was not completed successfully");
+                return;
+            }
+            mergeLock.lock();
+            try {
+                if (!fileManager.isFileMerged()) {
+                    speedLogger.stop();
+                    periodicChecker.stop();
+                    fileManager.mergeFiles(numberOfPieces, torrent.getLength());
+                }
+            } finally {
+                mergeLock.unlock();
+            }
+        } finally {
+            cleanup();
+        }
     }
 
     private void setupConnectionThreadPool() {
