@@ -36,7 +36,7 @@ Replace <torrent-file-path> with the path to the torrent file you want to downlo
 
 ## Demonstration
 
-[![vide pres](http://img.youtube.com/vi/8l4a_ciP0mw/0.jpg)](https://www.youtube.com/watch?v=8l4a_ciP0mw)
+[![Video presentation](http://img.youtube.com/vi/8l4a_ciP0mw/0.jpg)](https://www.youtube.com/watch?v=8l4a_ciP0mw)
 
 ## How it Works
 
