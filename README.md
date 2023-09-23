@@ -2,10 +2,6 @@
 
 A simple Bittorrent protocol client that supports downloading from peers. This is a research project to help learn about client connections, TCP, ByteStreams, multithreading, file I/O, and custom decoding.
 
-## Description
-
-Provide a detailed description of your project. Explain what your project is, what it does, and why it is useful. 
-
 ## Installation
 
 1. Prerequisites
