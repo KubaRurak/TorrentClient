@@ -13,7 +13,7 @@ You need to have the following installed on your local machine:
 2. Building
 * Clone the repository to your local machine:
   
- `git clone <repository-url>`
+ `git clone https://github.com/KubaRurak/TorrentClient`
 
 * Navigate to the project directory:
   
