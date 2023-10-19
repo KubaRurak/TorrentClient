@@ -127,9 +127,9 @@ public class Message {
     public byte[] serialize() {
         int length = payload.length+1;
         ByteBuffer buffer = ByteBuffer.allocate(4 + length);
-        buffer.putInt(length); // Length of the message
-        buffer.put((byte) type.getValue()); // Message type
-        buffer.put(payload); // Message payload
+        buffer.putInt(length); 
+        buffer.put((byte) type.getValue()); 
+        buffer.put(payload); 
         byte[] buffArr = buffer.array();
         return buffArr;
     }

@@ -188,7 +188,6 @@ public class Client {
 
 	public byte[] receiveMessage() throws IOException, SocketException {
 		
-//		socket.setSoTimeout(150000);
 		logger.debug("Trying to receive message");
 	    InputStream inputStream = socket.getInputStream();
 
@@ -254,11 +253,6 @@ public class Client {
 		sendMessage(interestedMessage);
 	}
 	
-//	public void sendBitfieldMessage() throws IOException {
-//		byte[] bitfield = torrent.generateBitfield();
-//		sendMessage(bitfield);
-//		
-//	}
 
 	private void sendMessage(Message message) throws IOException {
 		OutputStream outputStream = socket.getOutputStream();
@@ -268,12 +262,6 @@ public class Client {
 		outputStream.flush();
 	}
 	
-//	private void sendMessage(byte[] messageBytes) throws IOException {
-//		OutputStream outputStream = socket.getOutputStream();
-//		outputStream.write(messageBytes);
-//		logger.debug(bytesToHex(messageBytes));
-//		outputStream.flush();
-//	}
 	
 	private static String bytesToHex(byte[] bytes) {
 	    StringBuilder sb = new StringBuilder();
@@ -283,7 +271,7 @@ public class Client {
 	    return sb.toString();
 	}
 	
-
+	
 	public void handleMessage(Message message)  {
 		
 		try {
