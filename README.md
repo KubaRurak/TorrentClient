@@ -98,7 +98,7 @@ While the basic functionality of the torrent client has been implemented, there 
 
 4. Support magnet links: Currently, the client requires a .torrent file to initiate a download. Adding support for magnet links would make it easier to share and download torrents.
 
-5. Add features to pause, restart Manually,.: Implementing more user controls like pausing, restarting, or stopping the download manually would make the client more user-friendly.
+5. Add features to pause, restart etc: Implementing more user controls like pausing, restarting, or stopping the download manually would make the client more user-friendly.
 
 6. Add a GUI: Currently, the client is command-line based. Adding a graphical user interface (GUI) would make the client more accessible to non-technical users.
 
