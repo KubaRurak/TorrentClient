@@ -88,8 +88,6 @@ public class Peer {
             }
         }
         logger.info("Peer list created succesfully");
-
-//        peers.stream().forEach(peer -> System.out.println("ip: " + peer.getIpAddress() + " port: " + peer.getPort()));
         return peers;
     }
     

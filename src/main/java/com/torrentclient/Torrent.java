@@ -68,18 +68,6 @@ public class Torrent {
     
     public List<String> createAnnounceList(BencodeArray announceListArray){
     	this.announceList = new ArrayList<>();
-//        if (announceListArray != null) {
-//            this.announceList = new ArrayList<>();
-//            for (int i = 0; i < announceListArray.size(); i++) {
-//                BencodeArray sublist = announceListArray.getBencodeArray(i);
-//                if (sublist != null) {
-//                    for (int j = 0; j < sublist.size(); j++) {
-//                        String announceUrl = sublist.getString(j);
-//                        this.announceList.add(announceUrl);
-//                    }
-//                }
-//            }
-//        }
         announceList.add(this.announce);
         return announceList;
     }

@@ -27,7 +27,7 @@ public class Bitfield {
     private BitSet byteArrayToBitSet(byte[] bytes) {
         BitSet bitset = new BitSet(bytes.length * 8);
         for (int i = 0; i < bytes.length * 8; i++) {
-            if ((bytes[i / 8] & (1 << (7 - i % 8))) > 0) {  // Notice the change here.
+            if ((bytes[i / 8] & (1 << (7 - i % 8))) > 0) {
                 bitset.set(i);
             }
         }
@@ -38,7 +38,7 @@ public class Bitfield {
         byte[] bytes = new byte[(bits.length() + 7) / 8];
         for (int i = 0; i < bits.length(); i++) {
             if (bits.get(i)) {
-                bytes[i / 8] |= 1 << (7 - i % 8);  // Notice the change here.
+                bytes[i / 8] |= 1 << (7 - i % 8);
             }
         }
         return bytes;

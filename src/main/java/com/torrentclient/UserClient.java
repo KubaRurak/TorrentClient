@@ -31,16 +31,13 @@ public class UserClient implements PieceMessageCallback, ClientExceptionCallback
     private ExecutorService connectionThreadPool;
     private PeriodicChecker periodicChecker;
     private SpeedLogger speedLogger;
-
     private static final int maxBlockSize = 16384;
     private int numberOfPieces;
 	private int blocksPerPiece;
-	
     private String path;
     private String storagePath;
     private Torrent torrent;
     private FileManager fileManager;
-
 	private ConcurrentHashMap<Integer,PieceState> pieceStates;
     private Bitfield downloadedPiecesBitfield;
     private Queue<PieceState> pieceQueue;
@@ -303,7 +300,6 @@ public class UserClient implements PieceMessageCallback, ClientExceptionCallback
     
     private boolean shouldDownloadPiece(Client client, int pieceIndex) {
         return client.getBitfield().hasPiece(pieceIndex);
-//        return (!piecesBeingDownloaded.contains(pieceIndex)) && client.getBitfieldObject().hasPiece(pieceIndex);
     }
     
     private boolean needsMoreBlocks(Client client) {
@@ -362,8 +358,8 @@ public class UserClient implements PieceMessageCallback, ClientExceptionCallback
                 pieceList.add(new PieceState(blocksPerPiece, i));
             }
         }
-        Collections.shuffle(pieceList); // Randomize the order
-        pieceQueue.addAll(pieceList); // Add all the shuffled pieces to the queue
+        Collections.shuffle(pieceList);
+        pieceQueue.addAll(pieceList); 
     }
     
     private void initializePiecesBeingDownloadedSet() {

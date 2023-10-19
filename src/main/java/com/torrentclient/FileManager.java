@@ -24,7 +24,6 @@ public class FileManager {
         String fragmentFileName = storagePath + File.separator + torrentName + ".piece." + pieceIndex;
         logger.debug("Saving piece {}", pieceIndex);
 
-        // Ensure directories exist
         File file = new File(fragmentFileName);
         File parentDir = file.getParentFile();
         if (!parentDir.exists()) {

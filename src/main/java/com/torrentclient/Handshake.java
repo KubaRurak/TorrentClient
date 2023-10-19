@@ -36,11 +36,11 @@ public class Handshake {
 	    int pstrlen = pstr.length();
 	    int handshakeLength = 49 + pstrlen;
 	    ByteBuffer handshakeBuffer = ByteBuffer.allocate(handshakeLength);
-	    handshakeBuffer.put((byte) pstrlen); // Protocol string length
-	    handshakeBuffer.put(pstr.getBytes()); // Protocol identifier
-	    handshakeBuffer.put(new byte[8]); // Reserved bytes
-	    handshakeBuffer.put(infoHash); // Infohash
-	    handshakeBuffer.put(peerId); // Peer ID
+	    handshakeBuffer.put((byte) pstrlen);
+	    handshakeBuffer.put(pstr.getBytes());
+	    handshakeBuffer.put(new byte[8]);
+	    handshakeBuffer.put(infoHash);
+	    handshakeBuffer.put(peerId); 
 	    return handshakeBuffer.array();
 		
 	}

@@ -43,12 +43,12 @@ public class SpeedLogger {
         long totalElapsedTime = currentTime - startTime;
 
         long bytesDownloadedInterval = bytesDownloaded - previousDownloaded;
-        double speed = bytesDownloadedInterval / (double) INTERVAL; // speed in bytes per second (2 seconds interval)
+        double speed = bytesDownloadedInterval / (double) INTERVAL; 
         double speedInKBps = speed / 1024;
 
         long bytesRemaining = totalBytes - bytesDownloaded;
-        double averageSpeed = bytesDownloaded / (totalElapsedTime / 1000.0); // average speed in bytes per second
-        double estimatedTimeRemaining = bytesRemaining / averageSpeed;  // in seconds
+        double averageSpeed = bytesDownloaded / (totalElapsedTime / 1000.0); 
+        double estimatedTimeRemaining = bytesRemaining / averageSpeed; 
         if (estimatedTimeRemaining < 0) {
             estimatedTimeRemaining = 0;
         }
