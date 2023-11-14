@@ -104,7 +104,7 @@ While the basic functionality of the torrent client has been implemented, there 
 
 7. Support multiple file torrents: Currently, the client supports downloading single file torrents. Adding support for torrents containing multiple files would make the client more versatile and capable of handling a broader range of torrents.
 
-8. Optimize download strategy: The client can implement more advanced strategies to optimize the download speed, such as preferentially downloading rarer pieces or implementing endgame mode.
+8. Optimize download strategy: The client can implement more advanced strategies to optimize the download speed, such as preferentially downloading rarer pieces.
 
 
 ## Acknowledgments
